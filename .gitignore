@@ -36,3 +36,6 @@ build/
 .worktrees/
 .harness/reviews/
 .claude/settings.local.json
+
+### App data (files feature storage) ###
+data/
