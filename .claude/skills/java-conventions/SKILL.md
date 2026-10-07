@@ -18,6 +18,7 @@ description: Binding Java/Spring coding, testing, and commit conventions for thi
 - Controllers: thin. Validate with `@Valid` + Jakarta constraints, delegate to service, map to DTOs. Never return entities.
 - Services: business rules + `@Transactional` boundaries (read-only where applicable).
 - Errors: throw domain exceptions (e.g. `BookNotFoundException`); map them to RFC 9457 `ProblemDetail` (`application/problem+json`, fields `type`, `title`, `status`, `detail`, `instance`, plus `errors` map for validation) in a feature-scoped `@RestControllerAdvice(basePackageClasses = <Feature>Controller.class)` named `<Feature>ExceptionHandler` that extends `ResponseEntityExceptionHandler`. No try/catch in controllers.
+- Errors raised before a handler is selected (405, unmapped 404, eager multipart limits) never reach a feature-scoped advice; they are rendered as ProblemDetail by the shared `common/error` error controller (T06). Don't try to handle them in feature code.
 - Unhandled exceptions → `500` ProblemDetail with a generic detail (never a stack trace or internal message).
 
 ## Feature isolation (parallel tasks)
