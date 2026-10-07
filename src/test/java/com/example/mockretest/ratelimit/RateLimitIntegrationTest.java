@@ -48,6 +48,7 @@ class RateLimitIntegrationTest {
         assertThat(properties.window()).isEqualTo(Duration.ofMinutes(1));
         assertThat(properties.evictionInterval()).isEqualTo(Duration.ofMinutes(1));
         assertThat(properties.maxApiKeyLength()).isEqualTo(128);
+        assertThat(properties.maxTrackedKeys()).isEqualTo(100_000);
     }
 
     @Test

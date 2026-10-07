@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,11 +15,15 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.scheduling.config.FixedDelayTask;
 import org.springframework.scheduling.config.ScheduledTask;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(properties = {"ratelimit.limit=2", "ratelimit.window=30s", "ratelimit.eviction-interval=7s"})
 @AutoConfigureMockMvc
 class RateLimitPropertiesOverrideTest {
+
+    @TestBean(name = "rateLimitClock")
+    private RateLimitClock rateLimitClock;
 
     @Autowired
     private MockMvc mockMvc;
@@ -27,6 +33,10 @@ class RateLimitPropertiesOverrideTest {
 
     @Autowired
     private ScheduledTaskHolder scheduledTaskHolder;
+
+    static RateLimitClock rateLimitClock() {
+        return new RateLimitClock(new RateLimitTestClock(Instant.parse("2026-01-01T00:00:00Z")));
+    }
 
     @Test
     void evictionIsScheduledAtConfiguredInterval() {
@@ -42,15 +52,15 @@ class RateLimitPropertiesOverrideTest {
     void limitAndWindowAreConfigurableWithoutCodeChanges() throws Exception {
         assertThat(properties.limit()).isEqualTo(2);
         assertThat(properties.window()).isEqualTo(Duration.ofSeconds(30));
+        String key = "override-" + UUID.randomUUID();
 
-        mockMvc.perform(get("/api/quotes/random").header("X-API-Key", "override-key"))
+        mockMvc.perform(get("/api/quotes/random").header("X-API-Key", key))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-RateLimit-Limit", "2"))
                 .andExpect(header().string("X-RateLimit-Remaining", "1"));
-        mockMvc.perform(get("/api/quotes/random").header("X-API-Key", "override-key"))
-                .andExpect(status().isOk());
-        mockMvc.perform(get("/api/quotes/random").header("X-API-Key", "override-key"))
+        mockMvc.perform(get("/api/quotes/random").header("X-API-Key", key)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/quotes/random").header("X-API-Key", key))
                 .andExpect(status().isTooManyRequests())
-                .andExpect(header().exists("Retry-After"));
+                .andExpect(header().string("Retry-After", "30"));
     }
 }

@@ -7,15 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.mockretest.ratelimit.RateLimitConfig;
-import com.example.mockretest.ratelimit.RateLimitInterceptor;
-import com.example.mockretest.ratelimit.RateLimitService;
 import java.net.URI;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -28,7 +24,6 @@ import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.context.request.ServletWebRequest;
 
 @WebMvcTest(QuoteController.class)
-@Import({RateLimitConfig.class, RateLimitInterceptor.class, RateLimitService.class, QuotesExceptionHandler.class})
 class QuotesExceptionHandlerTest {
 
     private static final String SECRET = "jdbc:postgresql://db.internal/secret";
@@ -43,7 +38,7 @@ class QuotesExceptionHandlerTest {
     void unexpectedExceptionReturnsGeneric500ProblemWithoutInternalDetails() throws Exception {
         given(quoteService.randomQuote()).willThrow(new IllegalStateException(SECRET));
 
-        MvcResult result = mockMvc.perform(get("/api/quotes/random").header("X-API-Key", "handler-test"))
+        MvcResult result = mockMvc.perform(get("/api/quotes/random"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("urn:problem-type:quotes:internal-error"))

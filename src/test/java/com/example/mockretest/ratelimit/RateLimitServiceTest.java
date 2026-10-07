@@ -26,8 +26,7 @@ class RateLimitServiceTest {
     @BeforeEach
     void setUp() {
         clock = new RateLimitTestClock(Instant.parse("2026-01-01T00:00:00Z"));
-        service = new RateLimitService(
-                new RateLimitProperties(LIMIT, WINDOW, Duration.ofMinutes(1), 128), new RateLimitClock(clock));
+        service = serviceWithMaxTrackedKeys(100_000);
     }
 
     @Test
@@ -186,6 +185,63 @@ class RateLimitServiceTest {
 
         assertThat(service.trackedKeyCount()).isZero();
         assertThat(service.tryAcquire("key-a").remaining()).isEqualTo(LIMIT - 1);
+    }
+
+    @Test
+    void rejectsNewKeyWhenTrackedKeyCapIsReachedAndNothingHasExpired() {
+        RateLimitService capped = serviceWithMaxTrackedKeys(2);
+        capped.tryAcquire("key-a");
+        capped.tryAcquire("key-b");
+
+        RateLimitDecision decision = capped.tryAcquire("key-c");
+
+        assertThat(decision.allowed()).isFalse();
+        assertThat(decision.capacityExceeded()).isTrue();
+        assertThat(decision.retryAfterSeconds()).isEqualTo(1);
+        assertThat(capped.trackedKeyCount()).isEqualTo(2);
+    }
+
+    @Test
+    void alreadyTrackedKeysKeepWorkingAtTrackedKeyCap() {
+        RateLimitService capped = serviceWithMaxTrackedKeys(2);
+        capped.tryAcquire("key-a");
+        capped.tryAcquire("key-b");
+
+        RateLimitDecision decision = capped.tryAcquire("key-a");
+
+        assertThat(decision.allowed()).isTrue();
+        assertThat(decision.capacityExceeded()).isFalse();
+        assertThat(decision.remaining()).isEqualTo(LIMIT - 2);
+    }
+
+    @Test
+    void evictsExpiredWindowsInlineToAdmitNewKeyAtTrackedKeyCap() {
+        RateLimitService capped = serviceWithMaxTrackedKeys(2);
+        capped.tryAcquire("key-a");
+        capped.tryAcquire("key-b");
+        clock.advance(WINDOW);
+
+        RateLimitDecision decision = capped.tryAcquire("key-c");
+
+        assertThat(decision.allowed()).isTrue();
+        assertThat(capped.trackedKeyCount()).isEqualTo(1);
+    }
+
+    @Test
+    void manyFreshKeysNeverGrowTrackedKeysBeyondCap() {
+        RateLimitService capped = serviceWithMaxTrackedKeys(5);
+
+        for (int i = 0; i < 1_000; i++) {
+            capped.tryAcquire("fresh-" + i);
+        }
+
+        assertThat(capped.trackedKeyCount()).isEqualTo(5);
+    }
+
+    private RateLimitService serviceWithMaxTrackedKeys(int maxTrackedKeys) {
+        return new RateLimitService(
+                new RateLimitProperties(LIMIT, WINDOW, Duration.ofMinutes(1), 128, maxTrackedKeys),
+                new RateLimitClock(clock));
     }
 
     private void exhaust(String key) {

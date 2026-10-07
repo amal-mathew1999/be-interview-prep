@@ -10,25 +10,28 @@ import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import tools.jackson.databind.json.JsonMapper;
 
-/** Wires per-API-key rate limiting onto the protected {@code /api/quotes/**} endpoints. */
+/**
+ * Wires per-API-key rate limiting onto the protected {@code /api/quotes/**} endpoints.
+ *
+ * <p>This class deliberately does not implement {@link WebMvcConfigurer} and the interceptor is not a component:
+ * {@code @WebMvcTest} slices include every scanned {@code WebMvcConfigurer} / {@code HandlerInterceptor} but exclude
+ * {@link RateLimitService}, so either would break other features' slice tests. A plain {@code @Configuration} is
+ * excluded from slices, and with it the {@code WebMvcConfigurer} bean it declares.
+ */
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties(RateLimitProperties.class)
 @PropertySource("classpath:ratelimit.properties")
-public class RateLimitConfig implements WebMvcConfigurer, SchedulingConfigurer {
+public class RateLimitConfig implements SchedulingConfigurer {
 
     static final String PROTECTED_PATHS = "/api/quotes/**";
 
-    private final RateLimitInterceptor rateLimitInterceptor;
     private final RateLimitService rateLimitService;
     private final RateLimitProperties properties;
 
-    public RateLimitConfig(
-            RateLimitInterceptor rateLimitInterceptor,
-            RateLimitService rateLimitService,
-            RateLimitProperties properties) {
-        this.rateLimitInterceptor = rateLimitInterceptor;
+    public RateLimitConfig(RateLimitService rateLimitService, RateLimitProperties properties) {
         this.rateLimitService = rateLimitService;
         this.properties = properties;
     }
@@ -42,9 +45,16 @@ public class RateLimitConfig implements WebMvcConfigurer, SchedulingConfigurer {
         return new RateLimitClock(Clock.systemUTC());
     }
 
-    @Override
-    public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(rateLimitInterceptor).addPathPatterns(PROTECTED_PATHS);
+    /** Registers the rate-limit interceptor for {@value #PROTECTED_PATHS}. */
+    @Bean
+    WebMvcConfigurer rateLimitWebMvcConfigurer(JsonMapper jsonMapper) {
+        RateLimitInterceptor interceptor = new RateLimitInterceptor(rateLimitService, properties, jsonMapper);
+        return new WebMvcConfigurer() {
+            @Override
+            public void addInterceptors(InterceptorRegistry registry) {
+                registry.addInterceptor(interceptor).addPathPatterns(PROTECTED_PATHS);
+            }
+        };
     }
 
     /** Schedules eviction of expired windows at the validated {@code ratelimit.eviction-interval}. */

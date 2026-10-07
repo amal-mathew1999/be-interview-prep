@@ -30,6 +30,7 @@ class RateLimitPropertiesValidationTest {
             RateLimitProperties properties = context.getBean(RateLimitProperties.class);
             assertThat(properties.evictionInterval()).isEqualTo(Duration.ofMinutes(1));
             assertThat(properties.maxApiKeyLength()).isEqualTo(128);
+            assertThat(properties.maxTrackedKeys()).isEqualTo(100_000);
         });
     }
 
@@ -65,6 +66,12 @@ class RateLimitPropertiesValidationTest {
     void rejectsNonPositiveMaxApiKeyLengthAtStartup() {
         runner.withPropertyValues("ratelimit.max-api-key-length=0")
                 .run(context -> assertBindValidationFailure(context, "maxApiKeyLength"));
+    }
+
+    @Test
+    void rejectsNonPositiveMaxTrackedKeysAtStartup() {
+        runner.withPropertyValues("ratelimit.max-tracked-keys=0")
+                .run(context -> assertBindValidationFailure(context, "maxTrackedKeys"));
     }
 
     private static void assertBindValidationFailure(AssertableApplicationContext context, String field) {

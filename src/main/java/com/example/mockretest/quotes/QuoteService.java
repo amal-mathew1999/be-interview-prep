@@ -19,7 +19,8 @@ public class QuoteService {
         return QUOTES.get(ThreadLocalRandom.current().nextInt(QUOTES.size()));
     }
 
-    public List<Quote> allQuotes() {
+    /** The full fixed list; package-private, used only to verify {@link #randomQuote()}. */
+    List<Quote> allQuotes() {
         return QUOTES;
     }
 }

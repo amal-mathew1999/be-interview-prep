@@ -10,7 +10,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.json.ProblemDetailJacksonMixin;
-import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -20,8 +19,10 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Keys longer than {@code ratelimit.max-api-key-length} are rejected before being tracked, so clients cannot grow
  * the limiter's memory with arbitrarily large keys.
+ *
+ * <p>Not a Spring component: it is created and registered by {@link RateLimitConfig} so that {@code @WebMvcTest}
+ * slices of other features never pick it up.
  */
-@Component
 public class RateLimitInterceptor implements HandlerInterceptor {
 
     static final String API_KEY_HEADER = "X-API-Key";
@@ -31,6 +32,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     static final URI MISSING_API_KEY_TYPE = URI.create("urn:problem-type:ratelimit:missing-api-key");
     static final URI INVALID_API_KEY_TYPE = URI.create("urn:problem-type:ratelimit:invalid-api-key");
     static final URI TOO_MANY_REQUESTS_TYPE = URI.create("urn:problem-type:ratelimit:too-many-requests");
+    static final URI CAPACITY_EXCEEDED_TYPE = URI.create("urn:problem-type:ratelimit:capacity-exceeded");
 
     private final RateLimitService rateLimitService;
     private final int maxApiKeyLength;
@@ -73,6 +75,18 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         }
 
         RateLimitDecision decision = rateLimitService.tryAcquire(key);
+        if (decision.capacityExceeded()) {
+            long retryAfterSeconds = decision.retryAfterSeconds();
+            response.setHeader(HttpHeaders.RETRY_AFTER, Long.toString(retryAfterSeconds));
+            writeProblem(
+                    request,
+                    response,
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    CAPACITY_EXCEEDED_TYPE,
+                    "Rate limiter is tracking too many API keys; retry in %d %s."
+                            .formatted(retryAfterSeconds, retryAfterSeconds == 1 ? "second" : "seconds"));
+            return false;
+        }
         response.setHeader(LIMIT_HEADER, Integer.toString(decision.limit()));
         response.setHeader(REMAINING_HEADER, Integer.toString(decision.remaining()));
         if (decision.allowed()) {
