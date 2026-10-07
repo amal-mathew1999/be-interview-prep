@@ -10,9 +10,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.scheduling.config.FixedDelayTask;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(properties = {"ratelimit.limit=2", "ratelimit.window=30s"})
+@SpringBootTest(properties = {"ratelimit.limit=2", "ratelimit.window=30s", "ratelimit.eviction-interval=7s"})
 @AutoConfigureMockMvc
 class RateLimitPropertiesOverrideTest {
 
@@ -21,6 +24,19 @@ class RateLimitPropertiesOverrideTest {
 
     @Autowired
     private RateLimitProperties properties;
+
+    @Autowired
+    private ScheduledTaskHolder scheduledTaskHolder;
+
+    @Test
+    void evictionIsScheduledAtConfiguredInterval() {
+        assertThat(properties.evictionInterval()).isEqualTo(Duration.ofSeconds(7));
+        assertThat(scheduledTaskHolder.getScheduledTasks())
+                .map(ScheduledTask::getTask)
+                .filteredOn(FixedDelayTask.class::isInstance)
+                .map(task -> ((FixedDelayTask) task).getIntervalDuration())
+                .contains(Duration.ofSeconds(7));
+    }
 
     @Test
     void limitAndWindowAreConfigurableWithoutCodeChanges() throws Exception {

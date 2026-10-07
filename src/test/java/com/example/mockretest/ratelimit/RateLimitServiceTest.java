@@ -26,7 +26,8 @@ class RateLimitServiceTest {
     @BeforeEach
     void setUp() {
         clock = new RateLimitTestClock(Instant.parse("2026-01-01T00:00:00Z"));
-        service = new RateLimitService(new RateLimitProperties(LIMIT, WINDOW), clock);
+        service = new RateLimitService(
+                new RateLimitProperties(LIMIT, WINDOW, Duration.ofMinutes(1), 128), new RateLimitClock(clock));
     }
 
     @Test

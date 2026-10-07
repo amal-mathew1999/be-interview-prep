@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -28,7 +27,7 @@ class RateLimitIntegrationTest {
     private static final String API_KEY_HEADER = "X-API-Key";
 
     @TestBean(name = "rateLimitClock")
-    private Clock rateLimitClock;
+    private RateLimitClock rateLimitClock;
 
     @Autowired
     private MockMvc mockMvc;
@@ -36,14 +35,19 @@ class RateLimitIntegrationTest {
     @Autowired
     private RateLimitProperties properties;
 
-    static Clock rateLimitClock() {
-        return new RateLimitTestClock(Instant.parse("2026-01-01T00:00:00Z"));
+    @Autowired
+    private RateLimitService rateLimitService;
+
+    static RateLimitClock rateLimitClock() {
+        return new RateLimitClock(new RateLimitTestClock(Instant.parse("2026-01-01T00:00:00Z")));
     }
 
     @Test
     void usesDefaultLimitAndWindowFromProperties() {
         assertThat(properties.limit()).isEqualTo(10);
         assertThat(properties.window()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(properties.evictionInterval()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(properties.maxApiKeyLength()).isEqualTo(128);
     }
 
     @Test
@@ -67,6 +71,7 @@ class RateLimitIntegrationTest {
                 .andExpect(header().string("Retry-After", "60"))
                 .andExpect(header().string("X-RateLimit-Limit", "10"))
                 .andExpect(header().string("X-RateLimit-Remaining", "0"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:ratelimit:too-many-requests"))
                 .andExpect(jsonPath("$.status").value(429))
                 .andExpect(jsonPath("$.title").value("Too Many Requests"))
                 .andExpect(jsonPath("$.detail").value("Rate limit of 10 requests exceeded; retry in 60 seconds."))
@@ -92,7 +97,7 @@ class RateLimitIntegrationTest {
         }
         callWith(key).andExpect(status().isTooManyRequests());
 
-        ((RateLimitTestClock) rateLimitClock).advance(Duration.ofMinutes(1));
+        ((RateLimitTestClock) rateLimitClock.clock()).advance(Duration.ofMinutes(1));
 
         callWith(key).andExpect(status().isOk()).andExpect(header().string("X-RateLimit-Remaining", "9"));
     }
@@ -103,6 +108,7 @@ class RateLimitIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string("WWW-Authenticate", "ApiKey header=\"X-API-Key\""))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:ratelimit:missing-api-key"))
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.title").value("Unauthorized"))
                 .andExpect(jsonPath("$.detail").value("Missing X-API-Key header."))
@@ -115,6 +121,29 @@ class RateLimitIntegrationTest {
         mockMvc.perform(get(RANDOM_QUOTE).header(API_KEY_HEADER, "   "))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    void overlongApiKeyIsRejectedWith401AndNotTracked() throws Exception {
+        int trackedBefore = rateLimitService.trackedKeyCount();
+
+        callWith("k".repeat(129))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "ApiKey header=\"X-API-Key\""))
+                .andExpect(header().doesNotExist("X-RateLimit-Limit"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:ratelimit:invalid-api-key"))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.detail").value("X-API-Key header must be at most 128 characters."));
+
+        assertThat(rateLimitService.trackedKeyCount()).isEqualTo(trackedBefore);
+    }
+
+    @Test
+    void apiKeyAtMaximumLengthIsAccepted() throws Exception {
+        String key = (newKey() + "x".repeat(128)).substring(0, 128);
+
+        callWith(key).andExpect(status().isOk());
     }
 
     private ResultActions callWith(String apiKey) throws Exception {

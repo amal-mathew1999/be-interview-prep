@@ -1,14 +1,11 @@
 package com.example.mockretest.ratelimit;
 
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 /**
@@ -25,9 +22,9 @@ public class RateLimitService {
     private final ConcurrentHashMap<String, RateLimitWindow> windows = new ConcurrentHashMap<>();
     private final int limit;
     private final Duration window;
-    private final Clock clock;
+    private final RateLimitClock clock;
 
-    public RateLimitService(RateLimitProperties properties, @Qualifier("rateLimitClock") Clock clock) {
+    public RateLimitService(RateLimitProperties properties, RateLimitClock clock) {
         this.limit = properties.limit();
         this.window = properties.window();
         this.clock = clock;
@@ -35,7 +32,7 @@ public class RateLimitService {
 
     /** Records a request for {@code apiKey} and decides whether it is within the limit. */
     public RateLimitDecision tryAcquire(String apiKey) {
-        Instant now = clock.instant();
+        Instant now = clock.now();
         RateLimitDecision[] decision = new RateLimitDecision[1];
         windows.compute(apiKey, (key, current) -> {
             if (current == null || current.isExpired(now, window)) {
@@ -56,13 +53,13 @@ public class RateLimitService {
 
     /**
      * Removes windows that have expired so memory does not grow with stale keys. Each removal is atomic per key, so a
-     * concurrent request that just opened a fresh window is never discarded.
+     * concurrent request that just opened a fresh window is never discarded. Scheduled by {@link RateLimitConfig} at
+     * {@code ratelimit.eviction-interval}.
      *
      * @return number of evicted keys
      */
-    @Scheduled(fixedDelayString = "${ratelimit.eviction-interval:PT1M}")
     public int evictExpired() {
-        Instant now = clock.instant();
+        Instant now = clock.now();
         AtomicInteger evicted = new AtomicInteger();
         for (String key : windows.keySet()) {
             windows.computeIfPresent(key, (k, current) -> {
