@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Run the full gate before pushing any branch that changes product code.
+set -euo pipefail
+
+zero="0000000000000000000000000000000000000000"
+needs_verify=false
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [[ "$local_sha" == "$zero" ]] && continue
+  if [[ "$remote_sha" == "$zero" ]]; then
+    range="$(git merge-base origin/main "$local_sha" 2>/dev/null || echo "")"
+    changed="$( [[ -n "$range" ]] && git diff --name-only "$range" "$local_sha" || git ls-tree -r --name-only "$local_sha")"
+  else
+    changed="$(git diff --name-only "$remote_sha" "$local_sha")"
+  fi
+  grep -qE '^(src/|pom\.xml$)' <<<"$changed" && needs_verify=true
+done
+
+if $needs_verify; then
+  echo "[pre-push] Running ./mvnw -q -B verify ..." >&2
+  if ! ./mvnw -q -B verify >/dev/null 2>&1; then
+    echo "[pre-push] verify failed. Run ./mvnw -B verify to see why." >&2
+    exit 1
+  fi
+fi
