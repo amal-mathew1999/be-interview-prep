@@ -1,8 +1,12 @@
 package com.example.mockretest.expense;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -14,10 +18,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.mockretest.expense.dto.ExpenseResponse;
+import com.example.mockretest.expense.dto.ExpenseSummaryResponse;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -66,7 +72,7 @@ class ExpenseControllerTest {
                 .andExpect(jsonPath("$.id").value(7))
                 .andExpect(jsonPath("$.category").value("FOOD"))
                 .andExpect(jsonPath("$.date").value("2026-03-01"))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"amount\":12.50")));
+                .andExpect(content().string(containsString("\"amount\":12.50")));
     }
 
     @ParameterizedTest
@@ -125,14 +131,40 @@ class ExpenseControllerTest {
                 .andExpect(jsonPath("$.instance").value("/api/expenses"));
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "\"2026-02-30\"",
+                "\"03/01/2026\"",
+                "\"2026-03-01T10:00:00Z\"",
+                "\"2026-03-31T23:30:00Z\"",
+                "\"2026-03-01T10:00:00\"",
+                "\"2026-03-01Z\"",
+                "\"2026-03-01+01:00\"",
+                "\"20260301\"",
+                "\"\"",
+                "20000",
+                "[2026,3,1]",
+                "true",
+                "{}"
+            })
+    void rejectsInvalidDateWithProblemDetail(String date) throws Exception {
+        postJson(body("5.00", "\"FOOD\"", date))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("about:blank"))
+                .andExpect(jsonPath("$.instance").value("/api/expenses"));
+        verifyNoInteractions(expenseService);
+    }
+
     @Test
-    void rejectsInvalidDateWithProblemDetail() throws Exception {
-        postJson(body("5.00", "\"FOOD\"", "\"2026-02-30\""))
+    void rejectsNullDateWithFieldError() throws Exception {
+        postJson(body("5.00", "\"FOOD\"", "null"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON));
-        postJson(body("5.00", "\"FOOD\"", "\"03/01/2026\""))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON));
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.errors.date").exists());
+        verifyNoInteractions(expenseService);
     }
 
     @Test
@@ -171,9 +203,7 @@ class ExpenseControllerTest {
 
     @Test
     void returns404WhenExpenseMissingOnDelete() throws Exception {
-        org.mockito.BDDMockito.willThrow(new ExpenseNotFoundException(99L))
-                .given(expenseService)
-                .delete(99L);
+        willThrow(new ExpenseNotFoundException(99L)).given(expenseService).delete(99L);
 
         mockMvc.perform(delete("/api/expenses/99"))
                 .andExpect(status().isNotFound())
@@ -204,6 +234,7 @@ class ExpenseControllerTest {
     @Test
     void deletesExpenseAndReturns204() throws Exception {
         mockMvc.perform(delete("/api/expenses/7")).andExpect(status().isNoContent());
+        verify(expenseService).delete(7L);
     }
 
     @Test
@@ -230,23 +261,49 @@ class ExpenseControllerTest {
                 .andExpect(jsonPath("$.detail").value("'from' must not be after 'to'"));
     }
 
-    @Test
-    void returns400ForInvalidDateFilter() throws Exception {
-        mockMvc.perform(get("/api/expenses").param("from", "yesterday"))
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "yesterday",
+                "2026-02-30",
+                "2026-03-01Z",
+                "2026-03-01+01:00",
+                "2026-03-01T10:00:00Z",
+                "20260301",
+                "2026-3-1"
+            })
+    void returns400ForInvalidDateFilter(String value) throws Exception {
+        mockMvc.perform(get("/api/expenses").param("from", value))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON));
+        mockMvc.perform(get("/api/expenses").param("to", value))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON));
+        verifyNoInteractions(expenseService);
+    }
+
+    @Test
+    void createLocationIgnoresQueryString() throws Exception {
+        given(expenseService.create(any())).willReturn(sampleResponse());
+
+        mockMvc.perform(post("/api/expenses")
+                        .queryParam("x", "1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("12.5", "\"food\"", "\"2026-03-01\"")))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "http://localhost/api/expenses/7"));
     }
 
     @Test
     void returnsSummary() throws Exception {
         given(expenseService.summary(YearMonth.of(2026, 3)))
-                .willReturn(new com.example.mockretest.expense.dto.ExpenseSummaryResponse(
-                        "2026-03", java.util.Map.of("FOOD", new BigDecimal("0.30")), new BigDecimal("0.30")));
+                .willReturn(new ExpenseSummaryResponse(
+                        "2026-03", Map.of("FOOD", new BigDecimal("0.30")), new BigDecimal("0.30")));
 
         mockMvc.perform(get("/api/expenses/summary").param("month", "2026-03"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.month").value("2026-03"))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"overall\":0.30")));
+                .andExpect(content().string(containsString("\"overall\":0.30")));
     }
 
     @ParameterizedTest
@@ -272,7 +329,6 @@ class ExpenseControllerTest {
         mockMvc.perform(get("/api/expenses/1"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
-                .andExpect(
-                        content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("hunter2"))));
+                .andExpect(content().string(not(containsString("hunter2"))));
     }
 }

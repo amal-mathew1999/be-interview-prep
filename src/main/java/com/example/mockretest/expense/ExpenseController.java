@@ -34,7 +34,7 @@ public class ExpenseController {
     @PostMapping
     public ResponseEntity<ExpenseResponse> create(@Valid @RequestBody ExpenseRequest request) {
         ExpenseResponse created = service.create(request);
-        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+        URI location = ServletUriComponentsBuilder.fromCurrentRequestUri()
                 .path("/{id}")
                 .buildAndExpand(created.id())
                 .toUri();
@@ -43,8 +43,8 @@ public class ExpenseController {
 
     @GetMapping
     public List<ExpenseResponse> list(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate to,
             @RequestParam(required = false) String category) {
         return service.list(from, to, category);
     }

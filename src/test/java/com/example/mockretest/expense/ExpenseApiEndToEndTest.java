@@ -1,6 +1,9 @@
 package com.example.mockretest.expense;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -113,6 +116,45 @@ class ExpenseApiEndToEndTest {
         mockMvc.perform(delete(location)).andExpect(status().isNoContent());
         mockMvc.perform(get(location)).andExpect(status().isNotFound());
         mockMvc.perform(delete(location)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listCombinesFromToAndCategoryFilters() throws Exception {
+        create("1.00", "FOOD", "2026-02-28");
+        create("2.00", "FOOD", "2026-03-01");
+        create("4.00", "TRAVEL", "2026-03-10");
+        create("8.00", "FOOD", "2026-03-15");
+        create("16.00", "FOOD", "2026-03-31");
+        create("32.00", "FOOD", "2026-04-01");
+
+        mockMvc.perform(get("/api/expenses")
+                        .param("from", "2026-03-01")
+                        .param("to", "2026-03-15")
+                        .param("category", "food"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[*].date", containsInAnyOrder("2026-03-01", "2026-03-15")))
+                .andExpect(jsonPath("$[*].category", everyItem(is("FOOD"))));
+
+        mockMvc.perform(get("/api/expenses").param("from", "2026-03-01").param("to", "2026-03-31"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath(
+                        "$[*].date", containsInAnyOrder("2026-03-01", "2026-03-10", "2026-03-15", "2026-03-31")));
+
+        mockMvc.perform(get("/api/expenses").param("category", "TRAVEL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].date").value("2026-03-10"));
+    }
+
+    @Test
+    void createRejectsDateTimeWithZoneInsteadOfShiftingDay() throws Exception {
+        mockMvc.perform(post("/api/expenses")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\": 1.00, \"category\": \"FOOD\", \"date\": \"2026-03-31T23:30:00Z\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
     }
 
     @Test

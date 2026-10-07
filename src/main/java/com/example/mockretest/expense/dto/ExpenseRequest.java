@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 public record ExpenseRequest(
         @NotNull @Positive @Digits(integer = 10, fraction = 2) BigDecimal amount,
@@ -16,5 +17,5 @@ public record ExpenseRequest(
                         regexp = "(?i)\\s*(FOOD|TRAVEL|BILLS|OTHER)\\s*",
                         message = "must be one of FOOD, TRAVEL, BILLS, OTHER")
                 String category,
-        @NotNull LocalDate date,
+        @NotNull @JsonDeserialize(using = ExpenseStrictLocalDateDeserializer.class) LocalDate date,
         @Size(max = 500) String note) {}
