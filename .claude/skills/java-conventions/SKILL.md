@@ -17,7 +17,15 @@ description: Binding Java/Spring coding, testing, and commit conventions for thi
 - Package-by-feature under `com.example.mockretest.<feature>`: `XController`, `XService`, `XRepository`, `X` (entity), `dto/` records.
 - Controllers: thin. Validate with `@Valid` + Jakarta constraints, delegate to service, map to DTOs. Never return entities.
 - Services: business rules + `@Transactional` boundaries (read-only where applicable).
-- Errors: throw domain exceptions (e.g. `NotFoundException`); map to RFC 9457 `ProblemDetail` in `common/error/GlobalExceptionHandler`. No try/catch in controllers.
+- Errors: throw domain exceptions (e.g. `BookNotFoundException`); map them to RFC 9457 `ProblemDetail` (`application/problem+json`, fields `type`, `title`, `status`, `detail`, `instance`, plus `errors` map for validation) in a feature-scoped `@RestControllerAdvice(basePackageClasses = <Feature>Controller.class)` named `<Feature>ExceptionHandler` that extends `ResponseEntityExceptionHandler`. No try/catch in controllers.
+- Unhandled exceptions → `500` ProblemDetail with a generic detail (never a stack trace or internal message).
+
+## Feature isolation (parallel tasks)
+Features are built concurrently in separate worktrees, so they must never share files or bean/entity names:
+- Every class name is feature-prefixed and unique across the app (`LibraryExceptionHandler`, not `GlobalExceptionHandler`). Spring bean names and JPA entity names derive from simple class names — duplicates break the merged app.
+- Feature config lives in `src/main/resources/<feature>.properties`, loaded by `@PropertySource("classpath:<feature>.properties")` on a `<Feature>Config` class in the feature package, bound via `@ConfigurationProperties(prefix = "<feature>")`. Do **not** edit `application.properties` or `pom.xml`.
+- Feature-specific `@EnableAsync` / `@EnableScheduling` go on the feature's config class.
+- Tests that start the full context (`@SpringBootTest`) must not depend on other features' beans or data.
 - REST: plural nouns (`/api/tasks`), `201 Created` + `Location` on create, `204` on delete, `404` for missing, `400` for validation.
 - Config via `application.properties`; no hard-coded secrets, URLs, or magic numbers.
 
