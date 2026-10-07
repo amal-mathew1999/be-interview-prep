@@ -18,4 +18,13 @@ public class CommonErrorConfig {
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;
     }
+
+    @Bean
+    FilterRegistrationBean<CommonErrorResponseBufferingFilter> commonErrorResponseBufferingFilter() {
+        FilterRegistrationBean<CommonErrorResponseBufferingFilter> registration =
+                new FilterRegistrationBean<>(new CommonErrorResponseBufferingFilter());
+        registration.setDispatcherTypes(DispatcherType.ERROR);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
+    }
 }
