@@ -31,7 +31,7 @@ A change is **done** only when `./mvnw -q -B verify` exits 0.
 ## Golden rules
 
 1. **One task = one worktree = one branch = one PR.** Never mix tasks.
-2. Never commit to `main` directly; never force-push; never `--no-verify`. Hooks enforce this.
+2. Never commit product code (`src/`, `pom.xml`) to `main` — only harness/spec files; never force-push; never `--no-verify`. Hooks enforce this.
 3. Tasks are **atomic**: each owns a disjoint set of files declared in its spec. Touching a file outside the task's `owns:` list requires that the task spec be updated first.
 4. Reviews are **blind**: the reviewer sees only the task's acceptance criteria and a metadata-free diff — never the PR body, commit messages, author, or implementer's reasoning.
 5. Every review finding with severity `blocker` or `major` must be fixed and re-reviewed before a PR is considered ready.
