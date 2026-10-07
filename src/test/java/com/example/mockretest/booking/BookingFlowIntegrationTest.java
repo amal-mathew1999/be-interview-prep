@@ -102,6 +102,13 @@ class BookingFlowIntegrationTest {
     }
 
     @Test
+    void listsSlotsForLastRepresentableDateWithoutServerError() throws Exception {
+        mockMvc.perform(get("/api/doctors/{id}/slots", doctorId).param("date", "+999999999-12-31"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(16)));
+    }
+
+    @Test
     void holdReturns201WithHeldStatusAndExpiry() throws Exception {
         mockMvc.perform(hold(doctorId, "p1", NINE))
                 .andExpect(status().isCreated())

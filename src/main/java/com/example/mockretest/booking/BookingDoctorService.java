@@ -5,6 +5,7 @@ import com.example.mockretest.booking.dto.BookingDoctorResponse;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -53,13 +54,13 @@ public class BookingDoctorService {
         }
         Instant now = clock.instant();
         LocalDateTime localNow = clock.localNow();
-        Set<LocalDateTime> taken = slotLockRepository
-                .findByDoctorIdAndSlotStartGreaterThanEqualAndSlotStartLessThan(
-                        doctorId, date.atStartOfDay(), date.plusDays(1).atStartOfDay())
-                .stream()
-                .filter(lock -> !lock.isExpired(now))
-                .map(BookingSlotLock::getSlotStart)
-                .collect(Collectors.toSet());
+        Set<LocalDateTime> taken =
+                slotLockRepository
+                        .findByDoctorIdAndSlotStartBetween(doctorId, date.atStartOfDay(), date.atTime(LocalTime.MAX))
+                        .stream()
+                        .filter(lock -> !lock.isExpired(now))
+                        .map(BookingSlotLock::getSlotStart)
+                        .collect(Collectors.toSet());
         return slotPolicy.slotsFor(date).stream()
                 .filter(slot -> !slot.isBefore(localNow))
                 .filter(slot -> !taken.contains(slot))

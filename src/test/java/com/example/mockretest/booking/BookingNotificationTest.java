@@ -13,6 +13,7 @@ import com.example.mockretest.booking.dto.BookingDoctorCreateRequest;
 import com.example.mockretest.booking.dto.BookingHoldRequest;
 import com.example.mockretest.booking.dto.BookingPatientRequest;
 import com.example.mockretest.booking.dto.BookingResponse;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -30,6 +32,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 class BookingNotificationTest {
 
     private static final long WAIT_MS = 5_000;
+
+    /** Test time is pinned so the 2030 slot below stays in the future whatever today's date is. */
+    private static final Instant NOW = Instant.parse("2030-01-14T12:00:00Z");
+
+    @TestBean(name = "bookingClock", methodName = "fixedClock")
+    private BookingClock bookingClock;
 
     @MockitoSpyBean
     private BookingNotifier notifier;
@@ -47,6 +55,10 @@ class BookingNotificationTest {
     private PlatformTransactionManager transactionManager;
 
     private long bookingId;
+
+    static BookingClock fixedClock() {
+        return new BookingClock(new BookingTestClock(NOW));
+    }
 
     @BeforeEach
     void holdSlot() {

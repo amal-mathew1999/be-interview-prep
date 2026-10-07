@@ -16,7 +16,7 @@ class BookingSlotPolicyTest {
     private static final LocalDate DAY = LocalDate.of(2030, 1, 15);
 
     private final BookingSlotPolicy policy = new BookingSlotPolicy(new BookingProperties(
-            LocalTime.of(9, 0), LocalTime.of(17, 0), Duration.ofMinutes(30), Duration.ofMinutes(5)));
+            LocalTime.of(9, 0), LocalTime.of(17, 0), Duration.ofMinutes(30), Duration.ofMinutes(5), null));
 
     @Test
     void generatesThirtyMinuteSlotsWithinWorkingHours() {
@@ -31,7 +31,7 @@ class BookingSlotPolicyTest {
     @Test
     void respectsConfiguredWorkingHours() {
         BookingSlotPolicy shortDay = new BookingSlotPolicy(new BookingProperties(
-                LocalTime.of(10, 0), LocalTime.of(12, 0), Duration.ofMinutes(30), Duration.ofMinutes(5)));
+                LocalTime.of(10, 0), LocalTime.of(12, 0), Duration.ofMinutes(30), Duration.ofMinutes(5), null));
 
         assertThat(shortDay.slotsFor(DAY))
                 .containsExactly(DAY.atTime(10, 0), DAY.atTime(10, 30), DAY.atTime(11, 0), DAY.atTime(11, 30));

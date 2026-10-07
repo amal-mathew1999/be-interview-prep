@@ -11,11 +11,7 @@ public class BookingNotifier {
     private static final Logger log = LoggerFactory.getLogger(BookingNotifier.class);
 
     public void sendConfirmation(BookingConfirmedEvent event) {
-        log.info(
-                "Booking {} confirmed: patient {} with doctor {} at {}",
-                event.bookingId(),
-                event.patientId(),
-                event.doctorId(),
-                event.start());
+        // Patient identifiers are personal data: keep them out of INFO logs.
+        log.info("Booking {} confirmed with doctor {} at {}", event.bookingId(), event.doctorId(), event.start());
     }
 }

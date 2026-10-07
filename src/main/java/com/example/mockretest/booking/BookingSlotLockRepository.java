@@ -11,6 +11,6 @@ public interface BookingSlotLockRepository extends JpaRepository<BookingSlotLock
 
     Optional<BookingSlotLock> findByBookingId(Long bookingId);
 
-    List<BookingSlotLock> findByDoctorIdAndSlotStartGreaterThanEqualAndSlotStartLessThan(
-            Long doctorId, LocalDateTime from, LocalDateTime to);
+    /** Locks whose slot start lies in {@code [from, to]} (both inclusive). */
+    List<BookingSlotLock> findByDoctorIdAndSlotStartBetween(Long doctorId, LocalDateTime from, LocalDateTime to);
 }

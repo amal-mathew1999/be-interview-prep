@@ -40,7 +40,7 @@ class BookingServiceTest {
     @BeforeEach
     void setUp() {
         BookingProperties properties =
-                new BookingProperties(LocalTime.of(9, 0), LocalTime.of(17, 0), Duration.ofMinutes(30), HOLD);
+                new BookingProperties(LocalTime.of(9, 0), LocalTime.of(17, 0), Duration.ofMinutes(30), HOLD, null);
         service = new BookingService(
                 bookingRepository,
                 slotLockRepository,
