@@ -1,0 +1,144 @@
+package com.example.mockretest.library;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.example.mockretest.library.dto.BookRequest;
+import java.util.UUID;
+import java.util.function.Consumer;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * Deterministic interleavings of competing transactions against the real database (H2).
+ *
+ * <p>Each test opens an outer transaction that first observes the book as available (so any application-level
+ * read-then-check would pass), then lets a second, independent transaction ({@code REQUIRES_NEW}) commit a
+ * conflicting change, and only then performs its own write. The outcome therefore depends solely on the guard the
+ * database evaluates at write time, not on thread scheduling.
+ */
+@SpringBootTest
+class LibraryConcurrencyIntegrationTest {
+
+    @Autowired
+    private LibraryService service;
+
+    @Autowired
+    private BookRepository bookRepository;
+
+    @Autowired
+    private LoanRepository loanRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    private TransactionTemplate first;
+    private TransactionTemplate second;
+
+    @BeforeEach
+    void setUp() {
+        first = new TransactionTemplate(transactionManager);
+        second = new TransactionTemplate(transactionManager);
+        second.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
+
+    private long createAvailableBook() {
+        String isbn = "cc-" + UUID.randomUUID().toString().substring(0, 20);
+        return bookRepository
+                .saveAndFlush(new Book("Contended", "Author", isbn, null))
+                .getId();
+    }
+
+    /** Runs {@code ownWrite} in a transaction that saw the book available before {@code competing} committed. */
+    private void interleave(long bookId, Runnable competing, Consumer<Long> ownWrite) {
+        first.executeWithoutResult(status -> {
+            assertThat(bookRepository.findById(bookId))
+                    .hasValueSatisfying(book -> assertThat(book.isAvailable()).isTrue());
+            second.executeWithoutResult(inner -> competing.run());
+            ownWrite.accept(bookId);
+            rollBackIfFailed(status);
+        });
+    }
+
+    /** A rejected write marks the shared transaction rollback-only; roll back quietly instead of failing commit. */
+    private static void rollBackIfFailed(TransactionStatus status) {
+        if (status.isRollbackOnly()) {
+            status.setRollbackOnly();
+        }
+    }
+
+    @Test
+    void secondBorrowOfSameBookIsRejectedEvenIfItSawTheBookAvailable() {
+        long id = createAvailableBook();
+
+        interleave(id, () -> service.borrow(id, "winner"), bookId -> assertThatThrownBy(
+                        () -> service.borrow(bookId, "loser"))
+                .isInstanceOf(BookUnavailableException.class)
+                .hasMessageContaining("currently borrowed"));
+
+        assertThat(bookRepository.findById(id))
+                .hasValueSatisfying(book -> assertThat(book.isAvailable()).isFalse());
+        assertThat(loanRepository.findFirstByBookIdAndReturnedAtIsNull(id))
+                .hasValueSatisfying(loan -> assertThat(loan.getMemberId()).isEqualTo("winner"));
+    }
+
+    @Test
+    void deleteIsRejectedWhenBookWasBorrowedAfterItSawTheBookAvailable() {
+        long id = createAvailableBook();
+
+        interleave(id, () -> service.borrow(id, "borrower"), bookId -> assertThatThrownBy(() -> service.delete(bookId))
+                .isInstanceOf(BookUnavailableException.class));
+
+        assertThat(bookRepository.findById(id))
+                .hasValueSatisfying(book -> assertThat(book.isAvailable()).isFalse());
+        assertThat(loanRepository.findFirstByBookIdAndReturnedAtIsNull(id))
+                .hasValueSatisfying(loan -> assertThat(loan.getMemberId()).isEqualTo("borrower"));
+    }
+
+    @Test
+    void borrowSucceedsWhenBookWasEditedConcurrently() {
+        long id = createAvailableBook();
+
+        interleave(
+                id,
+                () -> service.update(id, new BookRequest("Edited", "Author", "cc-" + id + "-edited", null)),
+                bookId -> service.borrow(bookId, "member"));
+
+        assertThat(bookRepository.findById(id)).hasValueSatisfying(book -> {
+            assertThat(book.getTitle()).isEqualTo("Edited");
+            assertThat(book.isAvailable()).isFalse();
+        });
+        assertThat(loanRepository.findFirstByBookIdAndReturnedAtIsNull(id)).isPresent();
+    }
+
+    @Test
+    void borrowReturnsNotFoundWhenBookWasDeletedConcurrently() {
+        long id = createAvailableBook();
+
+        interleave(id, () -> service.delete(id), bookId -> assertThatThrownBy(() -> service.borrow(bookId, "member"))
+                .isInstanceOf(BookNotFoundException.class));
+
+        assertThat(bookRepository.findById(id)).isEmpty();
+    }
+
+    @Test
+    void secondReturnOfSameLoanIsRejected() {
+        long id = createAvailableBook();
+        service.borrow(id, "member");
+
+        first.executeWithoutResult(status -> {
+            second.executeWithoutResult(inner -> service.returnBook(id));
+            assertThatThrownBy(() -> service.returnBook(id)).isInstanceOf(BookNotBorrowedException.class);
+            rollBackIfFailed(status);
+        });
+
+        assertThat(bookRepository.findById(id))
+                .hasValueSatisfying(book -> assertThat(book.isAvailable()).isTrue());
+    }
+}

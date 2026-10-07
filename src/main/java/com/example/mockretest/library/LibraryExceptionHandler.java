@@ -44,8 +44,10 @@ public class LibraryExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<Object> handleDataIntegrity(DataIntegrityViolationException ex, WebRequest request) {
-        log.warn("Data integrity violation in library API", ex);
-        return problem(ex, HttpStatus.CONFLICT, "The request conflicts with existing data.", request);
+        // Known conflicts (duplicate ISBN) are translated to domain exceptions by the service. Anything that
+        // reaches here is an unrecognised constraint failure, i.e. a server-side bug, not a client conflict.
+        log.error("Unrecognised data integrity violation in library API", ex);
+        return problem(ex, HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.", request);
     }
 
     @ExceptionHandler(ConcurrencyFailureException.class)

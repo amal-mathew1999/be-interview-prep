@@ -23,6 +23,16 @@ class BookRepositoryTest {
     }
 
     @Test
+    void duplicateIsbnViolationIsRecognisedAsIsbnConstraint() {
+        repository.saveAndFlush(new Book("Dune", "Frank Herbert", "dup-isbn", 1965));
+
+        assertThatThrownBy(() -> repository.saveAndFlush(new Book("Other", "Someone", "dup-isbn", null)))
+                .isInstanceOfSatisfying(
+                        DataIntegrityViolationException.class,
+                        e -> assertThat(LibraryService.isIsbnUniqueViolation(e)).isTrue());
+    }
+
+    @Test
     void searchesByCaseInsensitiveTitleAndAuthorSubstrings() {
         repository.saveAndFlush(new Book("Dune", "Frank Herbert", "1", 1965));
         repository.saveAndFlush(new Book("Dune Messiah", "Frank Herbert", "2", 1969));

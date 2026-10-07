@@ -6,10 +6,11 @@ import com.example.mockretest.library.dto.LoanResponse;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,47 +63,35 @@ public class LibraryService {
 
     @Transactional
     public void delete(long id) {
-        Book book = findBook(id);
-        if (!book.isAvailable()) {
-            throw new BookUnavailableException(id);
+        // Conditional row update instead of read-then-check: a concurrent borrow cannot interleave.
+        if (bookRepository.lockIfAvailable(id) == 0) {
+            throw notFoundOr(id, new BookUnavailableException(id));
         }
         loanRepository.deleteByBookId(id);
-        bookRepository.delete(book);
+        bookRepository.deleteBookById(id);
     }
 
     @Transactional
     public LoanResponse borrow(long bookId, String memberId) {
+        // The availability check runs inside the UPDATE, so only a real borrow by someone else yields 409;
+        // unrelated concurrent changes (e.g. a PUT) no longer cause a false "currently borrowed".
+        if (bookRepository.markBorrowedIfAvailable(bookId) == 0) {
+            throw notFoundOr(bookId, new BookUnavailableException(bookId));
+        }
         Book book = findBook(bookId);
-        if (!book.isAvailable()) {
-            throw new BookUnavailableException(bookId);
-        }
-        book.markBorrowed();
-        try {
-            // Flush now so a concurrent borrow of the same book fails the @Version check here.
-            bookRepository.saveAndFlush(book);
-        } catch (OptimisticLockingFailureException e) {
-            throw new BookUnavailableException(bookId);
-        }
         Loan loan = loanRepository.save(new Loan(book, memberId, Instant.now(clock)));
         return toResponse(loan);
     }
 
     @Transactional
     public LoanResponse returnBook(long bookId) {
-        Book book = findBook(bookId);
-        if (book.isAvailable()) {
-            throw new BookNotBorrowedException(bookId);
+        if (bookRepository.markReturnedIfBorrowed(bookId) == 0) {
+            throw notFoundOr(bookId, new BookNotBorrowedException(bookId));
         }
         Loan loan = loanRepository
                 .findFirstByBookIdAndReturnedAtIsNull(bookId)
                 .orElseThrow(() -> new BookNotBorrowedException(bookId));
         loan.markReturned(Instant.now(clock));
-        book.markReturned();
-        try {
-            bookRepository.saveAndFlush(book);
-        } catch (OptimisticLockingFailureException e) {
-            throw new BookNotBorrowedException(bookId);
-        }
         return toResponse(loan);
     }
 
@@ -110,13 +99,32 @@ public class LibraryService {
         return bookRepository.findById(id).orElseThrow(() -> new BookNotFoundException(id));
     }
 
+    /** After a conditional update matched no row, re-reads the committed state to pick the accurate error. */
+    private RuntimeException notFoundOr(long id, RuntimeException conflict) {
+        return bookRepository.existsById(id) ? conflict : new BookNotFoundException(id);
+    }
+
     /** The pre-check gives a friendly error; the unique constraint is the real guard under concurrency. */
     private Book saveWithUniqueIsbn(Book book) {
         try {
             return bookRepository.saveAndFlush(book);
         } catch (DataIntegrityViolationException e) {
-            throw new DuplicateIsbnException(book.getIsbn());
+            if (isIsbnUniqueViolation(e)) {
+                throw new DuplicateIsbnException(book.getIsbn());
+            }
+            throw e;
         }
+    }
+
+    /** True only when the violated constraint is the ISBN unique constraint; other violations are not conflicts. */
+    static boolean isIsbnUniqueViolation(DataIntegrityViolationException e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation) {
+                String name = violation.getConstraintName();
+                return name != null && name.toLowerCase(Locale.ROOT).contains(Book.ISBN_UNIQUE_CONSTRAINT);
+            }
+        }
+        return false;
     }
 
     private static BookResponse toResponse(Book book) {

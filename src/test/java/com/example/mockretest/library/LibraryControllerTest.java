@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -247,6 +248,17 @@ class LibraryControllerTest {
         ResultActions result = mockMvc.perform(get("/api/books/1"));
 
         expectProblem(result, 500, "/api/books/1");
+        result.andExpect(jsonPath("$.detail").value(not(containsString("secret"))));
+    }
+
+    @Test
+    void returns500WithGenericDetailForUnrecognisedDataIntegrityViolation() throws Exception {
+        when(service.create(any(BookRequest.class)))
+                .thenThrow(new DataIntegrityViolationException("secret constraint FK_X violated"));
+
+        ResultActions result = postBook(bookJson("T", "A", "1", null));
+
+        expectProblem(result, 500, "/api/books");
         result.andExpect(jsonPath("$.detail").value(not(containsString("secret"))));
     }
 }

@@ -13,12 +13,15 @@ import java.util.Optional;
 @Entity
 @Table(
         name = "library_book",
-        uniqueConstraints = @UniqueConstraint(name = "uk_library_book_isbn", columnNames = "isbn"))
+        uniqueConstraints = @UniqueConstraint(name = Book.ISBN_UNIQUE_CONSTRAINT, columnNames = "isbn"))
 public class Book {
 
     public static final int TITLE_MAX_LENGTH = 255;
     public static final int AUTHOR_MAX_LENGTH = 255;
     public static final int ISBN_MAX_LENGTH = 32;
+
+    /** Name of the ISBN unique constraint; used to recognise duplicate-ISBN violations. Lower case. */
+    public static final String ISBN_UNIQUE_CONSTRAINT = "uk_library_book_isbn";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -36,6 +39,7 @@ public class Book {
     @Column(name = "published_year")
     private Integer publishedYear;
 
+    /** Changed only through the conditional updates in {@link BookRepository} so the database guards it. */
     @Column(nullable = false)
     private boolean available = true;
 
@@ -54,14 +58,6 @@ public class Book {
         this.author = author;
         this.isbn = isbn;
         this.publishedYear = publishedYear;
-    }
-
-    public void markBorrowed() {
-        this.available = false;
-    }
-
-    public void markReturned() {
-        this.available = true;
     }
 
     public Long getId() {
