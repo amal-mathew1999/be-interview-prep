@@ -13,8 +13,8 @@ import java.util.Optional;
 @Entity
 @Table(
         name = "library_book",
-        uniqueConstraints = @UniqueConstraint(name = Book.ISBN_UNIQUE_CONSTRAINT, columnNames = "isbn"))
-public class Book {
+        uniqueConstraints = @UniqueConstraint(name = LibraryBook.ISBN_UNIQUE_CONSTRAINT, columnNames = "isbn"))
+public class LibraryBook {
 
     public static final int TITLE_MAX_LENGTH = 255;
     public static final int AUTHOR_MAX_LENGTH = 255;
@@ -39,7 +39,7 @@ public class Book {
     @Column(name = "published_year")
     private Integer publishedYear;
 
-    /** Changed only through the conditional updates in {@link BookRepository} so the database guards it. */
+    /** Changed only through the conditional updates in {@link LibraryBookRepository} so the database guards it. */
     @Column(nullable = false)
     private boolean available = true;
 
@@ -47,9 +47,9 @@ public class Book {
     @Version
     private long version;
 
-    protected Book() {}
+    protected LibraryBook() {}
 
-    public Book(String title, String author, String isbn, Integer publishedYear) {
+    public LibraryBook(String title, String author, String isbn, Integer publishedYear) {
         replaceDetails(title, author, isbn, publishedYear);
     }
 

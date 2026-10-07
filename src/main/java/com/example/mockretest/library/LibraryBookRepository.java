@@ -6,13 +6,14 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface BookRepository extends JpaRepository<Book, Long> {
+public interface LibraryBookRepository extends JpaRepository<LibraryBook, Long> {
 
     boolean existsByIsbn(String isbn);
 
     boolean existsByIsbnAndIdNot(String isbn, Long id);
 
-    List<Book> findByTitleContainingIgnoreCaseAndAuthorContainingIgnoreCaseOrderByIdAsc(String title, String author);
+    List<LibraryBook> findByTitleContainingIgnoreCaseAndAuthorContainingIgnoreCaseOrderByIdAsc(
+            String title, String author);
 
     /**
      * Atomically flips an available book to borrowed. The availability condition is evaluated by the database
@@ -22,7 +23,8 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      * @return number of rows updated: 1 if the book was available, 0 if it is borrowed or does not exist
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("update Book b set b.available = false, b.version = b.version + 1 where b.id = :id and b.available = true")
+    @Query(
+            "update LibraryBook b set b.available = false, b.version = b.version + 1 where b.id = :id and b.available = true")
     int markBorrowedIfAvailable(@Param("id") long id);
 
     /**
@@ -31,7 +33,8 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      * @return number of rows updated: 1 if the book was borrowed, 0 if it is available or does not exist
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("update Book b set b.available = true, b.version = b.version + 1 where b.id = :id and b.available = false")
+    @Query(
+            "update LibraryBook b set b.available = true, b.version = b.version + 1 where b.id = :id and b.available = false")
     int markReturnedIfBorrowed(@Param("id") long id);
 
     /**
@@ -41,10 +44,10 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      * @return number of rows updated: 1 if the book was available, 0 if it is borrowed or does not exist
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("update Book b set b.version = b.version + 1 where b.id = :id and b.available = true")
+    @Query("update LibraryBook b set b.version = b.version + 1 where b.id = :id and b.available = true")
     int lockIfAvailable(@Param("id") long id);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("delete from Book b where b.id = :id")
+    @Query("delete from LibraryBook b where b.id = :id")
     int deleteBookById(@Param("id") long id);
 }

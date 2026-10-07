@@ -32,12 +32,16 @@ public class LibraryExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final URI DEFAULT_TYPE = URI.create("about:blank");
 
-    @ExceptionHandler(BookNotFoundException.class)
-    ResponseEntity<Object> handleNotFound(BookNotFoundException ex, WebRequest request) {
+    @ExceptionHandler(LibraryBookNotFoundException.class)
+    ResponseEntity<Object> handleNotFound(LibraryBookNotFoundException ex, WebRequest request) {
         return problem(ex, HttpStatus.NOT_FOUND, ex.getMessage(), request);
     }
 
-    @ExceptionHandler({DuplicateIsbnException.class, BookUnavailableException.class, BookNotBorrowedException.class})
+    @ExceptionHandler({
+        LibraryDuplicateIsbnException.class,
+        LibraryBookUnavailableException.class,
+        LibraryBookNotBorrowedException.class
+    })
     ResponseEntity<Object> handleConflict(RuntimeException ex, WebRequest request) {
         return problem(ex, HttpStatus.CONFLICT, ex.getMessage(), request);
     }

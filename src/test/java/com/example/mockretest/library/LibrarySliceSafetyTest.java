@@ -46,7 +46,7 @@ class LibrarySliceSafetyTest {
 
         @GetMapping("/library-slice-probe/missing")
         String missing() {
-            throw new BookNotFoundException(42L);
+            throw new LibraryBookNotFoundException(42L);
         }
     }
 

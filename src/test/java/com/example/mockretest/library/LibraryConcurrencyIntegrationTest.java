@@ -3,7 +3,7 @@ package com.example.mockretest.library;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.example.mockretest.library.dto.BookRequest;
+import com.example.mockretest.library.dto.LibraryBookRequest;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,10 +30,10 @@ class LibraryConcurrencyIntegrationTest {
     private LibraryService service;
 
     @Autowired
-    private BookRepository bookRepository;
+    private LibraryBookRepository bookRepository;
 
     @Autowired
-    private LoanRepository loanRepository;
+    private LibraryLoanRepository loanRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -51,7 +51,7 @@ class LibraryConcurrencyIntegrationTest {
     private long createAvailableBook() {
         String isbn = "cc-" + UUID.randomUUID().toString().substring(0, 20);
         return bookRepository
-                .saveAndFlush(new Book("Contended", "Author", isbn, null))
+                .saveAndFlush(new LibraryBook("Contended", "Author", isbn, null))
                 .getId();
     }
 
@@ -90,7 +90,7 @@ class LibraryConcurrencyIntegrationTest {
 
         interleave(id, () -> service.borrow(id, "winner"), bookId -> assertThatThrownBy(
                         () -> service.borrow(bookId, "loser"))
-                .isInstanceOf(BookUnavailableException.class)
+                .isInstanceOf(LibraryBookUnavailableException.class)
                 .hasMessageContaining("currently borrowed"));
 
         assertThat(bookRepository.findById(id))
@@ -104,7 +104,7 @@ class LibraryConcurrencyIntegrationTest {
         long id = createAvailableBook();
 
         interleave(id, () -> service.borrow(id, "borrower"), bookId -> assertThatThrownBy(() -> service.delete(bookId))
-                .isInstanceOf(BookUnavailableException.class));
+                .isInstanceOf(LibraryBookUnavailableException.class));
 
         assertThat(bookRepository.findById(id))
                 .hasValueSatisfying(book -> assertThat(book.isAvailable()).isFalse());
@@ -118,7 +118,7 @@ class LibraryConcurrencyIntegrationTest {
 
         interleave(
                 id,
-                () -> service.update(id, new BookRequest("Edited", "Author", "cc-" + id + "-edited", null)),
+                () -> service.update(id, new LibraryBookRequest("Edited", "Author", "cc-" + id + "-edited", null)),
                 bookId -> service.borrow(bookId, "member"));
 
         assertThat(bookRepository.findById(id)).hasValueSatisfying(book -> {
@@ -133,7 +133,7 @@ class LibraryConcurrencyIntegrationTest {
         long id = createAvailableBook();
 
         interleave(id, () -> service.delete(id), bookId -> assertThatThrownBy(() -> service.borrow(bookId, "member"))
-                .isInstanceOf(BookNotFoundException.class));
+                .isInstanceOf(LibraryBookNotFoundException.class));
 
         assertThat(bookRepository.findById(id)).isEmpty();
     }
@@ -145,7 +145,7 @@ class LibraryConcurrencyIntegrationTest {
 
         first.executeWithoutResult(status -> {
             second.executeWithoutResult(inner -> service.returnBook(id));
-            assertThatThrownBy(() -> service.returnBook(id)).isInstanceOf(BookNotBorrowedException.class);
+            assertThatThrownBy(() -> service.returnBook(id)).isInstanceOf(LibraryBookNotBorrowedException.class);
             convertGlobalRollbackOnlyToLocal(status);
         });
 

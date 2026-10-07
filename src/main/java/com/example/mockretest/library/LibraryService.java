@@ -1,8 +1,8 @@
 package com.example.mockretest.library;
 
-import com.example.mockretest.library.dto.BookRequest;
-import com.example.mockretest.library.dto.BookResponse;
-import com.example.mockretest.library.dto.LoanResponse;
+import com.example.mockretest.library.dto.LibraryBookRequest;
+import com.example.mockretest.library.dto.LibraryBookResponse;
+import com.example.mockretest.library.dto.LibraryLoanResponse;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -15,17 +15,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class LibraryService {
 
-    private final BookRepository bookRepository;
-    private final LoanRepository loanRepository;
+    private final LibraryBookRepository bookRepository;
+    private final LibraryLoanRepository loanRepository;
     private final LibraryClock clock;
 
-    public LibraryService(BookRepository bookRepository, LoanRepository loanRepository, LibraryClock clock) {
+    public LibraryService(
+            LibraryBookRepository bookRepository, LibraryLoanRepository loanRepository, LibraryClock clock) {
         this.bookRepository = bookRepository;
         this.loanRepository = loanRepository;
         this.clock = clock;
     }
 
-    public List<BookResponse> search(String title, String author) {
+    public List<LibraryBookResponse> search(String title, String author) {
         return bookRepository
                 .findByTitleContainingIgnoreCaseAndAuthorContainingIgnoreCaseOrderByIdAsc(
                         Objects.requireNonNullElse(title, ""), Objects.requireNonNullElse(author, ""))
@@ -34,24 +35,24 @@ public class LibraryService {
                 .toList();
     }
 
-    public BookResponse get(long id) {
+    public LibraryBookResponse get(long id) {
         return toResponse(findBook(id));
     }
 
     @Transactional
-    public BookResponse create(BookRequest request) {
+    public LibraryBookResponse create(LibraryBookRequest request) {
         if (bookRepository.existsByIsbn(request.isbn())) {
-            throw new DuplicateIsbnException(request.isbn());
+            throw new LibraryDuplicateIsbnException(request.isbn());
         }
-        Book book = new Book(request.title(), request.author(), request.isbn(), request.publishedYear());
+        LibraryBook book = new LibraryBook(request.title(), request.author(), request.isbn(), request.publishedYear());
         return toResponse(saveWithUniqueIsbn(book));
     }
 
     @Transactional
-    public BookResponse update(long id, BookRequest request) {
-        Book book = findBook(id);
+    public LibraryBookResponse update(long id, LibraryBookRequest request) {
+        LibraryBook book = findBook(id);
         if (bookRepository.existsByIsbnAndIdNot(request.isbn(), id)) {
-            throw new DuplicateIsbnException(request.isbn());
+            throw new LibraryDuplicateIsbnException(request.isbn());
         }
         book.replaceDetails(request.title(), request.author(), request.isbn(), request.publishedYear());
         return toResponse(saveWithUniqueIsbn(book));
@@ -61,52 +62,52 @@ public class LibraryService {
     public void delete(long id) {
         // Conditional row update instead of read-then-check: a concurrent borrow cannot interleave.
         if (bookRepository.lockIfAvailable(id) == 0) {
-            throw notFoundOr(id, new BookUnavailableException(id));
+            throw notFoundOr(id, new LibraryBookUnavailableException(id));
         }
         loanRepository.deleteByBookId(id);
         bookRepository.deleteBookById(id);
     }
 
     @Transactional
-    public LoanResponse borrow(long bookId, String memberId) {
+    public LibraryLoanResponse borrow(long bookId, String memberId) {
         // The availability check runs inside the UPDATE, so only a real borrow by someone else yields 409;
         // unrelated concurrent changes (e.g. a PUT) no longer cause a false "currently borrowed".
         if (bookRepository.markBorrowedIfAvailable(bookId) == 0) {
-            throw notFoundOr(bookId, new BookUnavailableException(bookId));
+            throw notFoundOr(bookId, new LibraryBookUnavailableException(bookId));
         }
-        Book book = findBook(bookId);
-        Loan loan = loanRepository.save(new Loan(book, memberId, clock.now()));
+        LibraryBook book = findBook(bookId);
+        LibraryLoan loan = loanRepository.save(new LibraryLoan(book, memberId, clock.now()));
         return toResponse(loan);
     }
 
     @Transactional
-    public LoanResponse returnBook(long bookId) {
+    public LibraryLoanResponse returnBook(long bookId) {
         if (bookRepository.markReturnedIfBorrowed(bookId) == 0) {
-            throw notFoundOr(bookId, new BookNotBorrowedException(bookId));
+            throw notFoundOr(bookId, new LibraryBookNotBorrowedException(bookId));
         }
-        Loan loan = loanRepository
+        LibraryLoan loan = loanRepository
                 .findFirstByBookIdAndReturnedAtIsNull(bookId)
-                .orElseThrow(() -> new BookNotBorrowedException(bookId));
+                .orElseThrow(() -> new LibraryBookNotBorrowedException(bookId));
         loan.markReturned(clock.now());
         return toResponse(loan);
     }
 
-    private Book findBook(long id) {
-        return bookRepository.findById(id).orElseThrow(() -> new BookNotFoundException(id));
+    private LibraryBook findBook(long id) {
+        return bookRepository.findById(id).orElseThrow(() -> new LibraryBookNotFoundException(id));
     }
 
     /** After a conditional update matched no row, re-reads the committed state to pick the accurate error. */
     private RuntimeException notFoundOr(long id, RuntimeException conflict) {
-        return bookRepository.existsById(id) ? conflict : new BookNotFoundException(id);
+        return bookRepository.existsById(id) ? conflict : new LibraryBookNotFoundException(id);
     }
 
     /** The pre-check gives a friendly error; the unique constraint is the real guard under concurrency. */
-    private Book saveWithUniqueIsbn(Book book) {
+    private LibraryBook saveWithUniqueIsbn(LibraryBook book) {
         try {
             return bookRepository.saveAndFlush(book);
         } catch (DataIntegrityViolationException e) {
             if (isIsbnUniqueViolation(e)) {
-                throw new DuplicateIsbnException(book.getIsbn());
+                throw new LibraryDuplicateIsbnException(book.getIsbn());
             }
             throw e;
         }
@@ -117,14 +118,14 @@ public class LibraryService {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException violation) {
                 String name = violation.getConstraintName();
-                return name != null && name.toLowerCase(Locale.ROOT).contains(Book.ISBN_UNIQUE_CONSTRAINT);
+                return name != null && name.toLowerCase(Locale.ROOT).contains(LibraryBook.ISBN_UNIQUE_CONSTRAINT);
             }
         }
         return false;
     }
 
-    private static BookResponse toResponse(Book book) {
-        return new BookResponse(
+    private static LibraryBookResponse toResponse(LibraryBook book) {
+        return new LibraryBookResponse(
                 book.getId(),
                 book.getTitle(),
                 book.getAuthor(),
@@ -133,8 +134,8 @@ public class LibraryService {
                 book.isAvailable());
     }
 
-    private static LoanResponse toResponse(Loan loan) {
-        return new LoanResponse(
+    private static LibraryLoanResponse toResponse(LibraryLoan loan) {
+        return new LibraryLoanResponse(
                 loan.getId(),
                 loan.getBook().getId(),
                 loan.getMemberId(),

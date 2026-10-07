@@ -18,9 +18,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.mockretest.library.dto.BookRequest;
-import com.example.mockretest.library.dto.BookResponse;
-import com.example.mockretest.library.dto.LoanResponse;
+import com.example.mockretest.library.dto.LibraryBookRequest;
+import com.example.mockretest.library.dto.LibraryBookResponse;
+import com.example.mockretest.library.dto.LibraryLoanResponse;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -84,8 +84,8 @@ class LibraryControllerTest {
 
     @Test
     void createsBookAndReturns201WithLocation() throws Exception {
-        when(service.create(new BookRequest("Dune", "Frank Herbert", "123", 1965)))
-                .thenReturn(new BookResponse(5L, "Dune", "Frank Herbert", "123", 1965, true));
+        when(service.create(new LibraryBookRequest("Dune", "Frank Herbert", "123", 1965)))
+                .thenReturn(new LibraryBookResponse(5L, "Dune", "Frank Herbert", "123", 1965, true));
 
         postBook(bookJson("Dune", "Frank Herbert", "123", 1965))
                 .andExpect(status().isCreated())
@@ -100,7 +100,7 @@ class LibraryControllerTest {
 
     @Test
     void acceptsCurrentYearAndMissingYear() throws Exception {
-        when(service.create(any())).thenReturn(new BookResponse(1L, "T", "A", "1", null, true));
+        when(service.create(any())).thenReturn(new LibraryBookResponse(1L, "T", "A", "1", null, true));
 
         postBook(bookJson("T", "A", "1", 2026)).andExpect(status().isCreated());
         postBook(bookJson("T", "A", "1", null)).andExpect(status().isCreated());
@@ -157,7 +157,7 @@ class LibraryControllerTest {
 
     @Test
     void returns404ForUnknownBook() throws Exception {
-        when(service.get(9L)).thenThrow(new BookNotFoundException(9L));
+        when(service.get(9L)).thenThrow(new LibraryBookNotFoundException(9L));
 
         expectProblem(mockMvc.perform(get("/api/books/9")), 404, "/api/books/9")
                 .andExpect(jsonPath("$.type").value("urn:problem-type:library:not-found"));
@@ -165,14 +165,14 @@ class LibraryControllerTest {
 
     @Test
     void returns409ForDuplicateIsbn() throws Exception {
-        when(service.create(any())).thenThrow(new DuplicateIsbnException("123"));
+        when(service.create(any())).thenThrow(new LibraryDuplicateIsbnException("123"));
 
         expectProblem(postBook(bookJson("Dune", "Frank Herbert", "123", 1965)), 409, "/api/books");
     }
 
     @Test
     void returns409WhenDeletingBorrowedBook() throws Exception {
-        doThrow(new BookUnavailableException(3L)).when(service).delete(3L);
+        doThrow(new LibraryBookUnavailableException(3L)).when(service).delete(3L);
 
         ResultActions result = mockMvc.perform(delete("/api/books/3"));
 
@@ -187,7 +187,7 @@ class LibraryControllerTest {
     @Test
     void listsBooksWithFilters() throws Exception {
         when(service.search("dun", "herb"))
-                .thenReturn(List.of(new BookResponse(1L, "Dune", "Frank Herbert", "123", 1965, true)));
+                .thenReturn(List.of(new LibraryBookResponse(1L, "Dune", "Frank Herbert", "123", 1965, true)));
 
         mockMvc.perform(get("/api/books").param("title", "dun").param("author", "herb"))
                 .andExpect(status().isOk())
@@ -198,7 +198,7 @@ class LibraryControllerTest {
     @Test
     void borrowsBookAndReturnsLoan() throws Exception {
         when(service.borrow(1L, "m-1"))
-                .thenReturn(new LoanResponse(7L, 1L, "m-1", Instant.parse("2026-01-01T10:00:00Z"), null));
+                .thenReturn(new LibraryLoanResponse(7L, 1L, "m-1", Instant.parse("2026-01-01T10:00:00Z"), null));
 
         mockMvc.perform(post("/api/books/1/borrow")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -224,7 +224,7 @@ class LibraryControllerTest {
 
     @Test
     void returns409WithClearDetailWhenBorrowingBorrowedBook() throws Exception {
-        when(service.borrow(eq(1L), anyString())).thenThrow(new BookUnavailableException(1L));
+        when(service.borrow(eq(1L), anyString())).thenThrow(new LibraryBookUnavailableException(1L));
 
         ResultActions result = mockMvc.perform(post("/api/books/1/borrow")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -236,7 +236,7 @@ class LibraryControllerTest {
 
     @Test
     void returns409WhenReturningBookThatIsNotBorrowed() throws Exception {
-        when(service.returnBook(anyLong())).thenThrow(new BookNotBorrowedException(1L));
+        when(service.returnBook(anyLong())).thenThrow(new LibraryBookNotBorrowedException(1L));
 
         expectProblem(mockMvc.perform(post("/api/books/1/return")), 409, "/api/books/1/return");
     }
@@ -253,7 +253,7 @@ class LibraryControllerTest {
 
     @Test
     void returns500WithGenericDetailForUnrecognisedDataIntegrityViolation() throws Exception {
-        when(service.create(any(BookRequest.class)))
+        when(service.create(any(LibraryBookRequest.class)))
                 .thenThrow(new DataIntegrityViolationException("secret constraint FK_X violated"));
 
         ResultActions result = postBook(bookJson("T", "A", "1", null));

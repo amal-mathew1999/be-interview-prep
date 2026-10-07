@@ -1,9 +1,9 @@
 package com.example.mockretest.library;
 
-import com.example.mockretest.library.dto.BookRequest;
-import com.example.mockretest.library.dto.BookResponse;
-import com.example.mockretest.library.dto.BorrowRequest;
-import com.example.mockretest.library.dto.LoanResponse;
+import com.example.mockretest.library.dto.LibraryBookRequest;
+import com.example.mockretest.library.dto.LibraryBookResponse;
+import com.example.mockretest.library.dto.LibraryBorrowRequest;
+import com.example.mockretest.library.dto.LibraryLoanResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
@@ -33,25 +33,25 @@ public class LibraryController {
     }
 
     @GetMapping
-    public List<BookResponse> list(
+    public List<LibraryBookResponse> list(
             @RequestParam(required = false) String title, @RequestParam(required = false) String author) {
         return service.search(title, author);
     }
 
     @GetMapping("/{id}")
-    public BookResponse get(@PathVariable long id) {
+    public LibraryBookResponse get(@PathVariable long id) {
         return service.get(id);
     }
 
     @PostMapping
-    public ResponseEntity<BookResponse> create(@Valid @RequestBody BookRequest request) {
-        BookResponse created = service.create(request);
+    public ResponseEntity<LibraryBookResponse> create(@Valid @RequestBody LibraryBookRequest request) {
+        LibraryBookResponse created = service.create(request);
         return ResponseEntity.created(URI.create(BASE_PATH + "/" + created.id()))
                 .body(created);
     }
 
     @PutMapping("/{id}")
-    public BookResponse update(@PathVariable long id, @Valid @RequestBody BookRequest request) {
+    public LibraryBookResponse update(@PathVariable long id, @Valid @RequestBody LibraryBookRequest request) {
         return service.update(id, request);
     }
 
@@ -62,12 +62,12 @@ public class LibraryController {
     }
 
     @PostMapping("/{id}/borrow")
-    public LoanResponse borrow(@PathVariable long id, @Valid @RequestBody BorrowRequest request) {
+    public LibraryLoanResponse borrow(@PathVariable long id, @Valid @RequestBody LibraryBorrowRequest request) {
         return service.borrow(id, request.memberId());
     }
 
     @PostMapping("/{id}/return")
-    public LoanResponse returnBook(@PathVariable long id) {
+    public LibraryLoanResponse returnBook(@PathVariable long id) {
         return service.returnBook(id);
     }
 }

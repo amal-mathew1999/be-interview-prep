@@ -3,11 +3,12 @@ package com.example.mockretest.library;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
-public class PublishedYearNotInFutureValidator implements ConstraintValidator<PublishedYearNotInFuture, Integer> {
+public class LibraryPublishedYearNotInFutureValidator
+        implements ConstraintValidator<LibraryPublishedYearNotInFuture, Integer> {
 
     private final LibraryClock clock;
 
-    public PublishedYearNotInFutureValidator(LibraryClock clock) {
+    public LibraryPublishedYearNotInFutureValidator(LibraryClock clock) {
         this.clock = clock;
     }
 

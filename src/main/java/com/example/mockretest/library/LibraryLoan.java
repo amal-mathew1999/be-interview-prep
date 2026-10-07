@@ -14,7 +14,7 @@ import java.util.Optional;
 
 @Entity
 @Table(name = "library_loan")
-public class Loan {
+public class LibraryLoan {
 
     public static final int MEMBER_ID_MAX_LENGTH = 255;
 
@@ -24,7 +24,7 @@ public class Loan {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "book_id", nullable = false)
-    private Book book;
+    private LibraryBook book;
 
     @Column(name = "member_id", nullable = false, length = MEMBER_ID_MAX_LENGTH)
     private String memberId;
@@ -35,9 +35,9 @@ public class Loan {
     @Column(name = "returned_at")
     private Instant returnedAt;
 
-    protected Loan() {}
+    protected LibraryLoan() {}
 
-    public Loan(Book book, String memberId, Instant borrowedAt) {
+    public LibraryLoan(LibraryBook book, String memberId, Instant borrowedAt) {
         this.book = book;
         this.memberId = memberId;
         this.borrowedAt = borrowedAt;
@@ -51,7 +51,7 @@ public class Loan {
         return id;
     }
 
-    public Book getBook() {
+    public LibraryBook getBook() {
         return book;
     }
 
