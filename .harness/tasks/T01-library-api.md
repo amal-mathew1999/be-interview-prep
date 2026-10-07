@@ -23,7 +23,7 @@ REST API for a small library to manage books and lend them to members.
 - AC8: `POST /api/books/{id}/borrow` with body `{"memberId": "<non-blank>"}` → `200` with the loan (`loanId`, `bookId`, `memberId`, `borrowedAt`). Missing/blank `memberId` → `400`.
 - AC9: Borrowing a book that is already borrowed → `409` with a clear `detail` stating the book is currently borrowed. Two concurrent borrow requests for the same available book: exactly one succeeds.
 - AC10: `POST /api/books/{id}/return` → `200`; book becomes available again; returning a book that is not borrowed → `409`.
-- AC11: Every error (400/404/409/500, including malformed JSON and type mismatches like `/api/books/abc`) returns one consistent `application/problem+json` body (`type`, `title`, `status`, `detail`, `instance`); validation errors additionally carry an `errors` object mapping field → message.
+- AC11: Every error raised by this feature's endpoints (400/404/409/500, including malformed JSON and type mismatches like `/api/books/abc`) returns one consistent `application/problem+json` body (`type`, `title`, `status`, `detail`, `instance`); validation errors additionally carry an `errors` object mapping field → message. Errors raised before a controller is selected (405 wrong method, 404 unmapped path) are out of scope here — they are rendered by the shared global error controller (Q6).
 - AC12: Automated tests cover at least: create happy path, validation failures (blank title, future year), duplicate ISBN, borrow-unavailable `409`, delete-while-borrowed `409`, return flow, and search.
 
 ## Out of scope
