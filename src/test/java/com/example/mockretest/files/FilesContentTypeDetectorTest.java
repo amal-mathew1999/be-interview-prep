@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
-class FileContentTypeDetectorTest {
+class FilesContentTypeDetectorTest {
 
-    private final FileContentTypeDetector detector = new FileContentTypeDetector();
+    private final FilesContentTypeDetector detector = new FilesContentTypeDetector();
 
     @Test
     void detectsPng() {

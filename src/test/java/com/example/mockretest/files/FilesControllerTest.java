@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -50,13 +51,13 @@ class FilesControllerTest {
         return new MockMultipartFile("file", "photo.png", "image/png", PNG_BYTES);
     }
 
-    private static StoredFile record(String name, String contentType, long size) {
-        return new StoredFile(UUID.randomUUID(), name, contentType, size, Instant.parse("2026-01-02T03:04:05Z"));
+    private static FilesStoredFile record(String name, String contentType, long size) {
+        return new FilesStoredFile(UUID.randomUUID(), name, contentType, size, Instant.parse("2026-01-02T03:04:05Z"));
     }
 
     @Test
     void uploadReturns201WithLocationAndRecord() throws Exception {
-        StoredFile stored = record("photo.png", "image/png", PNG_BYTES.length);
+        FilesStoredFile stored = record("photo.png", "image/png", PNG_BYTES.length);
         when(service.upload(any())).thenReturn(stored);
 
         mockMvc.perform(multipart("/api/files").file(pngPart()))
@@ -71,7 +72,7 @@ class FilesControllerTest {
 
     @Test
     void uploadMapsUnsupportedTypeTo415Problem() throws Exception {
-        when(service.upload(any())).thenThrow(new UnsupportedFileTypeException());
+        when(service.upload(any())).thenThrow(new FilesUnsupportedTypeException());
 
         mockMvc.perform(multipart("/api/files").file(pngPart()))
                 .andExpect(status().isUnsupportedMediaType())
@@ -85,7 +86,7 @@ class FilesControllerTest {
 
     @Test
     void uploadMapsEmptyFileTo400Problem() throws Exception {
-        when(service.upload(any())).thenThrow(new EmptyFileException());
+        when(service.upload(any())).thenThrow(new FilesEmptyFileException());
 
         mockMvc.perform(multipart("/api/files").file(pngPart()))
                 .andExpect(status().isBadRequest())
@@ -96,7 +97,7 @@ class FilesControllerTest {
 
     @Test
     void uploadMapsTooLargeTo413Problem() throws Exception {
-        when(service.upload(any())).thenThrow(new FileTooLargeException("5MB"));
+        when(service.upload(any())).thenThrow(new FilesTooLargeException("5MB"));
 
         mockMvc.perform(multipart("/api/files").file(pngPart()))
                 .andExpect(status().isPayloadTooLarge())
@@ -113,6 +114,20 @@ class FilesControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").isNotEmpty())
+                .andExpect(jsonPath("$.instance").value("/api/files"));
+    }
+
+    @Test
+    void nonMultipartUploadReturns415Problem() throws Exception {
+        mockMvc.perform(post("/api/files")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"file\":\"x\"}"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").isNotEmpty())
+                .andExpect(jsonPath("$.title").value("Unsupported media type"))
+                .andExpect(jsonPath("$.status").value(415))
+                .andExpect(jsonPath("$.detail", containsString("multipart/form-data")))
                 .andExpect(jsonPath("$.instance").value("/api/files"));
     }
 
@@ -143,9 +158,9 @@ class FilesControllerTest {
     void downloadSendsBytesWithTypeAndEncodedAttachmentName() throws Exception {
         String name = "ré\"sumé;x.jpg";
         byte[] bytes = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x01};
-        StoredFile stored = record(name, "image/jpeg", bytes.length);
+        FilesStoredFile stored = record(name, "image/jpeg", bytes.length);
         when(service.download(stored.getId().toString()))
-                .thenReturn(new FileDownload(stored, new ByteArrayResource(bytes)));
+                .thenReturn(new FilesDownload(stored, new ByteArrayResource(bytes)));
 
         MvcResult result = mockMvc.perform(get("/api/files/{id}", stored.getId()))
                 .andExpect(status().isOk())
@@ -166,7 +181,7 @@ class FilesControllerTest {
     @Test
     void downloadOfUnknownIdReturns404Problem() throws Exception {
         String id = UUID.randomUUID().toString();
-        when(service.download(id)).thenThrow(new StoredFileNotFoundException(id));
+        when(service.download(id)).thenThrow(new FilesNotFoundException(id));
 
         mockMvc.perform(get("/api/files/{id}", id))
                 .andExpect(status().isNotFound())
@@ -190,7 +205,7 @@ class FilesControllerTest {
     @Test
     void deleteOfUnknownIdReturns404Problem() throws Exception {
         String id = UUID.randomUUID().toString();
-        doThrow(new StoredFileNotFoundException(id)).when(service).delete(id);
+        doThrow(new FilesNotFoundException(id)).when(service).delete(id);
 
         mockMvc.perform(delete("/api/files/{id}", id))
                 .andExpect(status().isNotFound())

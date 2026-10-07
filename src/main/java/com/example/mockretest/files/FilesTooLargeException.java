@@ -1,8 +1,8 @@
 package com.example.mockretest.files;
 
-public class FileTooLargeException extends RuntimeException {
+public class FilesTooLargeException extends RuntimeException {
 
-    public FileTooLargeException(String limit) {
+    public FilesTooLargeException(String limit) {
         super("The uploaded file exceeds the maximum allowed size of " + limit);
     }
 }

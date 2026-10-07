@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +23,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -44,6 +46,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Full-context tests against a real embedded server: real storage directory, database and, for the container-level
@@ -73,6 +76,9 @@ class FilesApiIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private FilesService filesService;
 
     @LocalServerPort
     private int port;
@@ -213,14 +219,54 @@ class FilesApiIntegrationTest {
     }
 
     @Test
+    void acceptsFileOfExactlyFiveMegabytesOverRealHttp() throws Exception {
+        // Real container multipart parsing: fails if the app-level spring.servlet.multipart.* limits drop below 5MB.
+        HttpResponse<String> response = postOverHttp(withMagic(PNG_MAGIC, FIVE_MB));
+
+        assertThat(response.statusCode()).isEqualTo(201);
+        assertThat(response.headers().firstValue(HttpHeaders.LOCATION))
+                .hasValueSatisfying(location -> assertThat(location).contains("/api/files/"));
+        assertThat((Integer) JsonPath.read(response.body(), "$.size")).isEqualTo(FIVE_MB);
+    }
+
+    @Test
+    void rejectsFileOfFiveMegabytesPlusOneByteOverRealHttpWithAppLevel413() throws Exception {
+        HttpResponse<String> response = postOverHttp(withMagic(PNG_MAGIC, FIVE_MB + 1));
+
+        assertTooLargeProblem(response);
+    }
+
+    @Test
     void rejectsBodyAboveContainerMultipartLimitWith413ProblemOverRealHttp() throws Exception {
         // 8MB exceeds spring.servlet.multipart.max-file-size (6MB) and max-request-size (7MB): the servlet container
         // rejects it while parsing the multipart body, before the application-level size check can run.
-        byte[] bytes = withMagic(PNG_MAGIC, 8 * 1024 * 1024);
+        HttpResponse<String> response = postOverHttp(withMagic(PNG_MAGIC, 8 * 1024 * 1024));
+
+        assertTooLargeProblem(response);
+    }
+
+    @Test
+    void uploadCopiesBytesWithoutAnOpenTransaction() {
+        List<Boolean> transactionActiveDuringRead = new ArrayList<>();
+        MockMultipartFile file = new MockMultipartFile("file", "tx.png", "image/png", withMagic(PNG_MAGIC, 32)) {
+            @Override
+            public InputStream getInputStream() throws IOException {
+                transactionActiveDuringRead.add(TransactionSynchronizationManager.isActualTransactionActive());
+                return super.getInputStream();
+            }
+        };
+
+        FilesStoredFile stored = filesService.upload(file);
+
+        assertThat(transactionActiveDuringRead).isNotEmpty().containsOnly(false);
+        assertThat(storageDir().resolve(stored.getId().toString())).exists();
+    }
+
+    private HttpResponse<String> postOverHttp(byte[] bytes) throws IOException, InterruptedException {
         String boundary = "files-boundary-" + UUID.randomUUID();
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         body.write(("--" + boundary + "\r\n"
-                        + "Content-Disposition: form-data; name=\"file\"; filename=\"huge.png\"\r\n"
+                        + "Content-Disposition: form-data; name=\"file\"; filename=\"upload.png\"\r\n"
                         + "Content-Type: image/png\r\n\r\n")
                 .getBytes(StandardCharsets.US_ASCII));
         body.write(bytes);
@@ -230,9 +276,10 @@ class FilesApiIntegrationTest {
                 .header(HttpHeaders.CONTENT_TYPE, "multipart/form-data; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
                 .build();
-        HttpResponse<String> response =
-                HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
 
+    private static void assertTooLargeProblem(HttpResponse<String> response) {
         assertThat(response.statusCode()).isEqualTo(413);
         assertThat(MediaType.parseMediaType(
                         response.headers().firstValue(HttpHeaders.CONTENT_TYPE).orElseThrow()))
@@ -244,7 +291,7 @@ class FilesApiIntegrationTest {
                 .containsEntry("title", "File too large")
                 .containsEntry("instance", "/api/files")
                 .containsKeys("type", "detail");
-        assertThat((String) problem.get("detail")).contains("5MB");
+        assertThat((String) problem.get("detail")).contains("maximum allowed size of 5MB");
     }
 
     @Test

@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /** Detects the allowed file types from their leading magic bytes, ignoring names and client headers. */
 @Component
-public class FileContentTypeDetector {
+public class FilesContentTypeDetector {
 
     /** Number of leading bytes needed to recognise every supported signature. */
     public static final int SIGNATURE_LENGTH = 8;

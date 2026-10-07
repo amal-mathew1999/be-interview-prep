@@ -24,6 +24,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.unit.DataSize;
@@ -36,13 +37,13 @@ class FilesServiceTest {
     @TempDir
     Path storageDir;
 
-    private final StoredFileRepository repository = mock(StoredFileRepository.class);
+    private final FilesStoredFileRepository repository = mock(FilesStoredFileRepository.class);
     private FilesService service;
 
     @BeforeEach
     void setUp() {
         service = new FilesService(
-                repository, new FileContentTypeDetector(), new FilesProperties(storageDir, DataSize.ofMegabytes(5)));
+                repository, new FilesContentTypeDetector(), new FilesProperties(storageDir, DataSize.ofMegabytes(5)));
     }
 
     @AfterEach
@@ -64,6 +65,37 @@ class FilesServiceTest {
     void sanitizeStripsControlCharactersIncludingNul() {
         assertThat(FilesService.sanitizeOriginalName("evil\u0000.png")).isEqualTo("evil.png");
         assertThat(FilesService.sanitizeOriginalName("a\r\nb.png")).isEqualTo("ab.png");
+    }
+
+    @Test
+    void sanitizeStripsUnicodeFormatCharactersSuchAsRightToLeftOverride() {
+        // "invoice‮fdp.exe" displays as "invoiceexe.pdf" but is an .exe.
+        assertThat(FilesService.sanitizeOriginalName("invoice‮fdp.exe")).isEqualTo("invoicefdp.exe");
+        assertThat(FilesService.sanitizeOriginalName("a​b﻿.png")).isEqualTo("ab.png");
+    }
+
+    @Test
+    void sanitizeTruncatesLongNamesWithoutSplittingSurrogatePairs() {
+        String emoji = "😀"; // U+1F600, two UTF-16 units
+        String name = "a".repeat(254) + emoji + ".png";
+
+        String sanitized = FilesService.sanitizeOriginalName(name);
+
+        assertThat(sanitized).isEqualTo("a".repeat(254));
+        assertThat(Character.isHighSurrogate(sanitized.charAt(sanitized.length() - 1)))
+                .isFalse();
+        assertThat(FilesService.sanitizeOriginalName("b".repeat(300))).hasSize(255);
+    }
+
+    @Test
+    void uploadRemovesStoredBytesWhenPersistingTheRecordFails() throws IOException {
+        byte[] bytes = Arrays.copyOf(PNG_MAGIC, 64);
+        when(repository.saveAndFlush(any())).thenThrow(new IllegalStateException("commit failed"));
+
+        assertThatThrownBy(() -> service.upload(new MockMultipartFile("file", "photo.png", "image/png", bytes)))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(filesIn(storageDir)).isEmpty();
     }
 
     @Test
@@ -89,7 +121,7 @@ class FilesServiceTest {
         when(file.getOriginalFilename()).thenReturn("photo.png");
         when(file.getInputStream()).thenReturn(new ByteArrayInputStream(bytes), failsMidWrite);
 
-        assertThatThrownBy(() -> service.upload(file)).isInstanceOf(FileStorageException.class);
+        assertThatThrownBy(() -> service.upload(file)).isInstanceOf(FilesStorageException.class);
 
         assertThat(filesIn(storageDir)).isEmpty();
         verify(repository, never()).saveAndFlush(any());
@@ -103,7 +135,7 @@ class FilesServiceTest {
 
         service.delete(id.toString());
 
-        verify(repository).delete(any(StoredFile.class));
+        verify(repository).delete(any(FilesStoredFile.class));
         assertThat(bytes)
                 .as("bytes must survive until the deletion is committed")
                 .exists();
@@ -127,7 +159,8 @@ class FilesServiceTest {
     private Path storedBytes(UUID id) throws IOException {
         Path bytes = Files.write(storageDir.resolve(id.toString()), PNG_MAGIC);
         when(repository.findById(id))
-                .thenReturn(Optional.of(new StoredFile(id, "photo.png", "image/png", PNG_MAGIC.length, Instant.now())));
+                .thenReturn(Optional.of(
+                        new FilesStoredFile(id, "photo.png", "image/png", PNG_MAGIC.length, Instant.now())));
         return bytes;
     }
 

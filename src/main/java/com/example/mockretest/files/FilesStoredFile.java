@@ -9,7 +9,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "stored_file")
-public class StoredFile {
+public class FilesStoredFile {
 
     @Id
     private UUID id;
@@ -26,9 +26,9 @@ public class StoredFile {
     @Column(nullable = false)
     private Instant uploadedAt;
 
-    protected StoredFile() {}
+    protected FilesStoredFile() {}
 
-    public StoredFile(UUID id, String originalName, String contentType, long size, Instant uploadedAt) {
+    public FilesStoredFile(UUID id, String originalName, String contentType, long size, Instant uploadedAt) {
         this.id = id;
         this.originalName = originalName;
         this.contentType = contentType;

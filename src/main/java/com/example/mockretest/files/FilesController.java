@@ -1,6 +1,6 @@
 package com.example.mockretest.files;
 
-import com.example.mockretest.files.dto.StoredFileResponse;
+import com.example.mockretest.files.dto.FilesStoredFileResponse;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -29,25 +29,25 @@ public class FilesController {
         this.service = service;
     }
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<StoredFileResponse> upload(@RequestParam("file") MultipartFile file) {
-        StoredFile stored = service.upload(file);
+    @PostMapping
+    public ResponseEntity<FilesStoredFileResponse> upload(@RequestParam("file") MultipartFile file) {
+        FilesStoredFile stored = service.upload(file);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(stored.getId())
                 .toUri();
-        return ResponseEntity.created(location).body(StoredFileResponse.from(stored));
+        return ResponseEntity.created(location).body(FilesStoredFileResponse.from(stored));
     }
 
     @GetMapping
-    public List<StoredFileResponse> list() {
-        return service.list().stream().map(StoredFileResponse::from).toList();
+    public List<FilesStoredFileResponse> list() {
+        return service.list().stream().map(FilesStoredFileResponse::from).toList();
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<Resource> download(@PathVariable String id) {
-        FileDownload download = service.download(id);
-        StoredFile file = download.file();
+        FilesDownload download = service.download(id);
+        FilesStoredFile file = download.file();
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(file.getOriginalName(), StandardCharsets.UTF_8)
                 .build();

@@ -1,8 +1,11 @@
 package com.example.mockretest.files;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -12,6 +15,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 @RestControllerAdvice(basePackageClasses = FilesController.class)
@@ -21,40 +25,67 @@ public class FilesExceptionHandler extends ResponseEntityExceptionHandler {
     private static final URI BLANK_TYPE = URI.create("about:blank");
     private static final Logger LOG = LoggerFactory.getLogger(FilesExceptionHandler.class);
 
-    private final FilesProperties properties;
+    // ObjectProvider, not FilesProperties: every @WebMvcTest slice in the app picks up this advice, but not the files
+    // configuration, so a hard dependency would break other features' slice tests.
+    private final ObjectProvider<FilesProperties> properties;
 
-    public FilesExceptionHandler(FilesProperties properties) {
+    public FilesExceptionHandler(ObjectProvider<FilesProperties> properties) {
         this.properties = properties;
     }
 
-    @ExceptionHandler(StoredFileNotFoundException.class)
-    ProblemDetail handleNotFound(StoredFileNotFoundException ex) {
+    @ExceptionHandler(FilesNotFoundException.class)
+    ProblemDetail handleNotFound(FilesNotFoundException ex) {
         return problem(HttpStatus.NOT_FOUND, "File not found", ex.getMessage());
     }
 
-    @ExceptionHandler(UnsupportedFileTypeException.class)
-    ProblemDetail handleUnsupportedType(UnsupportedFileTypeException ex) {
+    @ExceptionHandler(FilesUnsupportedTypeException.class)
+    ProblemDetail handleUnsupportedType(FilesUnsupportedTypeException ex) {
         return problem(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported file type", ex.getMessage());
     }
 
-    @ExceptionHandler(EmptyFileException.class)
-    ProblemDetail handleEmpty(EmptyFileException ex) {
+    @ExceptionHandler(FilesEmptyFileException.class)
+    ProblemDetail handleEmpty(FilesEmptyFileException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Empty file", ex.getMessage());
     }
 
-    @ExceptionHandler(FileTooLargeException.class)
-    ProblemDetail handleTooLarge(FileTooLargeException ex) {
+    @ExceptionHandler(FilesTooLargeException.class)
+    ProblemDetail handleTooLarge(FilesTooLargeException ex) {
         return problem(HttpStatus.PAYLOAD_TOO_LARGE, "File too large", ex.getMessage());
     }
 
     @Override
     protected ResponseEntity<Object> handleMaxUploadSizeExceededException(
             MaxUploadSizeExceededException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        ProblemDetail body = problem(
-                HttpStatus.PAYLOAD_TOO_LARGE,
-                "File too large",
-                new FileTooLargeException(FilesService.describe(properties.maxSize())).getMessage());
+        ProblemDetail body = problem(HttpStatus.PAYLOAD_TOO_LARGE, "File too large", tooLargeDetail());
         return handleExceptionInternal(ex, body, headers, HttpStatus.PAYLOAD_TOO_LARGE, request);
+    }
+
+    /**
+     * A non-multipart {@code POST /api/files} reaches the handler (no {@code consumes} restriction) and fails while
+     * resolving the {@code file} part: answer 415. A multipart body that cannot be parsed is a 400. Size violations
+     * ({@link MaxUploadSizeExceededException}) are more specific and handled above.
+     */
+    private String tooLargeDetail() {
+        FilesProperties files = properties.getIfAvailable();
+        if (files == null || files.maxSize() == null) {
+            return "The uploaded file exceeds the maximum allowed size";
+        }
+        return new FilesTooLargeException(FilesService.describe(files.maxSize())).getMessage();
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    ProblemDetail handleMultipart(MultipartException ex, HttpServletRequest request) {
+        String contentType = request.getContentType();
+        boolean multipart =
+                contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("multipart/");
+        if (!multipart) {
+            return problem(
+                    HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                    "Unsupported media type",
+                    "Uploads must be sent as multipart/form-data with the file in a part named 'file'");
+        }
+        return problem(
+                HttpStatus.BAD_REQUEST, "Malformed multipart request", "The multipart request could not be parsed");
     }
 
     @ExceptionHandler(Exception.class)
