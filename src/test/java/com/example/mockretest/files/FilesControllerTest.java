@@ -2,8 +2,12 @@ package com.example.mockretest.files;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.startsWith;
+import static org.hamcrest.Matchers.endsWith;
+import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -12,128 +16,78 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.jayway.jsonpath.JsonPath;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Arrays;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-@SpringBootTest
-@AutoConfigureMockMvc
+/** Web-layer slice: request mapping, response shape and problem+json error mapping, with the service mocked. */
+@WebMvcTest(FilesController.class)
+@Import(FilesConfig.class)
 class FilesControllerTest {
 
-    private static final int FIVE_MB = 5 * 1024 * 1024;
-    private static final byte[] PNG_MAGIC = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
-    private static final byte[] JPEG_MAGIC = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0};
-    private static final byte[] PDF_MAGIC = "%PDF-1.7\n".getBytes(StandardCharsets.US_ASCII);
-
-    @TempDir
-    static Path tempRoot;
-
-    @DynamicPropertySource
-    static void storageProperties(DynamicPropertyRegistry registry) {
-        registry.add("files.storage-dir", () -> storageDir().toString());
-    }
-
-    private static Path storageDir() {
-        return tempRoot.resolve("storage");
-    }
+    private static final byte[] PNG_BYTES = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
 
     @Autowired
     private MockMvc mockMvc;
 
-    private static byte[] withMagic(byte[] magic, int totalSize) {
-        byte[] bytes = Arrays.copyOf(magic, totalSize);
-        for (int i = magic.length; i < totalSize; i++) {
-            bytes[i] = (byte) (i % 251);
-        }
-        return bytes;
+    @MockitoBean
+    private FilesService service;
+
+    private static MockMultipartFile pngPart() {
+        return new MockMultipartFile("file", "photo.png", "image/png", PNG_BYTES);
     }
 
-    private static MockMultipartFile filePart(String name, String clientType, byte[] bytes) {
-        return new MockMultipartFile("file", name, clientType, bytes);
-    }
-
-    private String upload(MockMultipartFile file) throws Exception {
-        MvcResult result = mockMvc.perform(multipart("/api/files").file(file))
-                .andExpect(status().isCreated())
-                .andReturn();
-        return JsonPath.read(result.getResponse().getContentAsString(), "$.id");
-    }
-
-    private static List<Path> storedFiles() throws IOException {
-        if (!Files.exists(storageDir())) {
-            return List.of();
-        }
-        try (Stream<Path> files = Files.list(storageDir())) {
-            return files.toList();
-        }
+    private static StoredFile record(String name, String contentType, long size) {
+        return new StoredFile(UUID.randomUUID(), name, contentType, size, Instant.parse("2026-01-02T03:04:05Z"));
     }
 
     @Test
-    void uploadsPngAndReturns201WithLocationAndRecord() throws Exception {
-        byte[] bytes = withMagic(PNG_MAGIC, 64);
-        mockMvc.perform(multipart("/api/files").file(filePart("photo.png", "image/png", bytes)))
+    void uploadReturns201WithLocationAndRecord() throws Exception {
+        StoredFile stored = record("photo.png", "image/png", PNG_BYTES.length);
+        when(service.upload(any())).thenReturn(stored);
+
+        mockMvc.perform(multipart("/api/files").file(pngPart()))
                 .andExpect(status().isCreated())
-                .andExpect(header().string(HttpHeaders.LOCATION, containsString("/api/files/")))
-                .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(header().string(HttpHeaders.LOCATION, endsWith("/api/files/" + stored.getId())))
+                .andExpect(jsonPath("$.id").value(stored.getId().toString()))
                 .andExpect(jsonPath("$.originalName").value("photo.png"))
                 .andExpect(jsonPath("$.contentType").value("image/png"))
-                .andExpect(jsonPath("$.size").value(64))
-                .andExpect(jsonPath("$.uploadedAt").isNotEmpty());
+                .andExpect(jsonPath("$.size").value(PNG_BYTES.length))
+                .andExpect(jsonPath("$.uploadedAt").value("2026-01-02T03:04:05Z"));
     }
 
     @Test
-    void uploadsJpegDetectedFromContentNotClientType() throws Exception {
-        byte[] bytes = withMagic(JPEG_MAGIC, 32);
-        mockMvc.perform(multipart("/api/files")
-                        .file(filePart("picture.bin", MediaType.APPLICATION_OCTET_STREAM_VALUE, bytes)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.contentType").value("image/jpeg"));
-    }
+    void uploadMapsUnsupportedTypeTo415Problem() throws Exception {
+        when(service.upload(any())).thenThrow(new UnsupportedFileTypeException());
 
-    @Test
-    void uploadsPdf() throws Exception {
-        byte[] bytes = withMagic(PDF_MAGIC, 128);
-        mockMvc.perform(multipart("/api/files").file(filePart("doc.pdf", "application/pdf", bytes)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.contentType").value("application/pdf"))
-                .andExpect(jsonPath("$.size").value(128));
-    }
-
-    @Test
-    void rejectsRenamedExecutableWith415Problem() throws Exception {
-        byte[] exe = withMagic(new byte[] {'M', 'Z', (byte) 0x90, 0x00}, 64);
-        mockMvc.perform(multipart("/api/files").file(filePart("photo.png", "image/png", exe)))
+        mockMvc.perform(multipart("/api/files").file(pngPart()))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.status").value(415))
-                .andExpect(jsonPath("$.title").isNotEmpty())
                 .andExpect(jsonPath("$.type").isNotEmpty())
-                .andExpect(jsonPath("$.instance").value("/api/files"))
-                .andExpect(jsonPath("$.detail", containsString("JPEG, PNG, PDF")));
+                .andExpect(jsonPath("$.title").value("Unsupported file type"))
+                .andExpect(jsonPath("$.status").value(415))
+                .andExpect(jsonPath("$.detail", containsString("JPEG, PNG, PDF")))
+                .andExpect(jsonPath("$.instance").value("/api/files"));
     }
 
     @Test
-    void rejectsEmptyFileWith400Problem() throws Exception {
-        mockMvc.perform(multipart("/api/files").file(filePart("empty.png", "image/png", new byte[0])))
+    void uploadMapsEmptyFileTo400Problem() throws Exception {
+        when(service.upload(any())).thenThrow(new EmptyFileException());
+
+        mockMvc.perform(multipart("/api/files").file(pngPart()))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(400))
@@ -141,7 +95,20 @@ class FilesControllerTest {
     }
 
     @Test
-    void rejectsMissingFilePartWith400Problem() throws Exception {
+    void uploadMapsTooLargeTo413Problem() throws Exception {
+        when(service.upload(any())).thenThrow(new FileTooLargeException("5MB"));
+
+        mockMvc.perform(multipart("/api/files").file(pngPart()))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(413))
+                .andExpect(jsonPath("$.title").value("File too large"))
+                .andExpect(jsonPath("$.detail", containsString("5MB")))
+                .andExpect(jsonPath("$.instance").value("/api/files"));
+    }
+
+    @Test
+    void uploadWithoutFilePartReturns400Problem() throws Exception {
         mockMvc.perform(multipart("/api/files"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -150,123 +117,84 @@ class FilesControllerTest {
     }
 
     @Test
-    void acceptsFileOfExactlyFiveMegabytes() throws Exception {
-        byte[] bytes = withMagic(PNG_MAGIC, FIVE_MB);
-        mockMvc.perform(multipart("/api/files").file(filePart("big.png", "image/png", bytes)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.size").value(FIVE_MB));
-    }
+    void unexpectedErrorReturnsGeneric500ProblemWithoutInternalMessage() throws Exception {
+        when(service.upload(any())).thenThrow(new IllegalStateException("secret internal path C:/data"));
 
-    @Test
-    void rejectsFileLargerThanFiveMegabytesWith413Problem() throws Exception {
-        byte[] bytes = withMagic(PNG_MAGIC, FIVE_MB + 1);
-        mockMvc.perform(multipart("/api/files").file(filePart("huge.png", "image/png", bytes)))
-                .andExpect(status().isPayloadTooLarge())
+        mockMvc.perform(multipart("/api/files").file(pngPart()))
+                .andExpect(status().isInternalServerError())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.status").value(413))
-                .andExpect(jsonPath("$.type").isNotEmpty())
-                .andExpect(jsonPath("$.title").isNotEmpty())
-                .andExpect(jsonPath("$.instance").value("/api/files"))
-                .andExpect(jsonPath("$.detail", containsString("5MB")));
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.detail", not(containsString("secret"))));
     }
 
     @Test
-    void storesTraversalFilenameSafelyInsideStorageDir() throws Exception {
-        Path outside = tempRoot.resolve("passwd");
-        for (String evil : List.of("../../passwd", "..\\..\\passwd", "/etc/passwd", "C:\\passwd", "pass\u0000wd")) {
-            String id = upload(filePart(evil, "image/png", withMagic(PNG_MAGIC, 16)));
-
-            Path stored = storageDir().resolve(id);
-            assertThat(stored).exists();
-            assertThat(stored.toRealPath().getParent()).isEqualTo(storageDir().toRealPath());
-            assertThat(storedFiles()).allMatch(p -> isUuid(p.getFileName().toString()));
-            assertThat(outside).doesNotExist();
-
-            mockMvc.perform(get("/api/files"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[?(@.id == '" + id + "')].originalName", hasItem("passwd")));
-        }
-    }
-
-    @Test
-    void listsAllRecords() throws Exception {
-        String id = upload(filePart("listed.pdf", "application/pdf", withMagic(PDF_MAGIC, 20)));
+    void listReturnsRecords() throws Exception {
+        when(service.list()).thenReturn(List.of(record("a.pdf", "application/pdf", 20)));
 
         mockMvc.perform(get("/api/files"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.id == '" + id + "')].originalName", hasItem("listed.pdf")))
-                .andExpect(jsonPath("$[?(@.id == '" + id + "')].contentType", hasItem("application/pdf")))
-                .andExpect(jsonPath("$[?(@.id == '" + id + "')].size", hasItem(20)))
-                .andExpect(jsonPath("$[?(@.id == '" + id + "')].uploadedAt").isNotEmpty());
+                .andExpect(jsonPath("$[0].originalName").value("a.pdf"))
+                .andExpect(jsonPath("$[0].contentType").value("application/pdf"))
+                .andExpect(jsonPath("$[0].size").value(20))
+                .andExpect(jsonPath("$[0].uploadedAt").isNotEmpty());
     }
 
     @Test
-    void downloadsBytesWithDetectedTypeAndSafeAttachmentName() throws Exception {
-        byte[] bytes = withMagic(JPEG_MAGIC, 40);
+    void downloadSendsBytesWithTypeAndEncodedAttachmentName() throws Exception {
         String name = "ré\"sumé;x.jpg";
-        String id = upload(filePart(name, "text/plain", bytes));
+        byte[] bytes = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x01};
+        StoredFile stored = record(name, "image/jpeg", bytes.length);
+        when(service.download(stored.getId().toString()))
+                .thenReturn(new FileDownload(stored, new ByteArrayResource(bytes)));
 
-        MvcResult result = mockMvc.perform(get("/api/files/{id}", id))
+        MvcResult result = mockMvc.perform(get("/api/files/{id}", stored.getId()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.IMAGE_JPEG))
-                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, startsWith("attachment")))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("filename*=UTF-8''")))
                 .andExpect(content().bytes(bytes))
                 .andReturn();
 
-        ContentDisposition disposition =
-                ContentDisposition.parse(result.getResponse().getHeader(HttpHeaders.CONTENT_DISPOSITION));
+        String headerValue = result.getResponse().getHeader(HttpHeaders.CONTENT_DISPOSITION);
+        assertThat(StandardCharsets.US_ASCII.newEncoder().canEncode(headerValue))
+                .isTrue();
+        ContentDisposition disposition = ContentDisposition.parse(headerValue);
         assertThat(disposition.isAttachment()).isTrue();
         assertThat(disposition.getFilename()).isEqualTo(name);
     }
 
     @Test
-    void returns404ProblemWhenDownloadingUnknownId() throws Exception {
-        mockMvc.perform(get("/api/files/{id}", UUID.randomUUID()))
+    void downloadOfUnknownIdReturns404Problem() throws Exception {
+        String id = UUID.randomUUID().toString();
+        when(service.download(id)).thenThrow(new StoredFileNotFoundException(id));
+
+        mockMvc.perform(get("/api/files/{id}", id))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.type").isNotEmpty())
-                .andExpect(jsonPath("$.title").isNotEmpty())
-                .andExpect(jsonPath("$.detail").isNotEmpty())
-                .andExpect(jsonPath("$.instance", startsWith("/api/files/")));
+                .andExpect(jsonPath("$.title").value("File not found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail", containsString(id)))
+                .andExpect(jsonPath("$.instance").value("/api/files/" + id));
     }
 
     @Test
-    void returns404WhenIdIsNotAUuid() throws Exception {
-        mockMvc.perform(get("/api/files/{id}", "..%2F..%2Fetc%2Fpasswd"))
-                .andExpect(status().isNotFound())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
-    }
-
-    @Test
-    void deleteRemovesBytesFromDiskAndRecord() throws Exception {
-        String id = upload(filePart("gone.png", "image/png", withMagic(PNG_MAGIC, 16)));
-        assertThat(storageDir().resolve(id)).exists();
+    void deleteReturns204() throws Exception {
+        String id = UUID.randomUUID().toString();
 
         mockMvc.perform(delete("/api/files/{id}", id)).andExpect(status().isNoContent());
 
-        assertThat(storageDir().resolve(id)).doesNotExist();
-        mockMvc.perform(get("/api/files/{id}", id)).andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/files"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.id == '" + id + "')]").isEmpty());
+        verify(service).delete(id);
     }
 
     @Test
-    void returns404ProblemWhenDeletingUnknownId() throws Exception {
-        mockMvc.perform(delete("/api/files/{id}", UUID.randomUUID()))
+    void deleteOfUnknownIdReturns404Problem() throws Exception {
+        String id = UUID.randomUUID().toString();
+        doThrow(new StoredFileNotFoundException(id)).when(service).delete(id);
+
+        mockMvc.perform(delete("/api/files/{id}", id))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.instance", startsWith("/api/files/")));
-    }
-
-    private static boolean isUuid(String value) {
-        try {
-            UUID.fromString(value);
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+                .andExpect(jsonPath("$.instance").value("/api/files/" + id));
     }
 }

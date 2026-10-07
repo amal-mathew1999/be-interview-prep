@@ -2,6 +2,7 @@ package com.example.mockretest.files;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -14,6 +15,8 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -50,10 +53,16 @@ public class FilesService {
         Path target = resolveInsideStorage(id);
         try {
             Files.createDirectories(storageDir);
-            try (InputStream in = multipartFile.getInputStream()) {
-                Files.copy(in, target);
-            }
         } catch (IOException e) {
+            throw new FileStorageException("Could not create storage directory", e);
+        }
+        try (InputStream in = multipartFile.getInputStream()) {
+            Files.copy(in, target);
+        } catch (FileAlreadyExistsException e) {
+            // Never delete here: the existing file belongs to another record.
+            throw new FileStorageException("Could not store file", e);
+        } catch (IOException e) {
+            deleteQuietly(target);
             throw new FileStorageException("Could not store file", e);
         }
 
@@ -92,10 +101,17 @@ public class FilesService {
         StoredFile file = find(id);
         repository.delete(file);
         repository.flush();
-        try {
-            Files.deleteIfExists(resolveInsideStorage(file.getId()));
-        } catch (IOException e) {
-            throw new FileStorageException("Could not delete file", e);
+        Path path = resolveInsideStorage(file.getId());
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            // Remove the bytes only once the record deletion is committed; a rollback keeps record and bytes together.
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deleteQuietly(path);
+                }
+            });
+        } else {
+            deleteQuietly(path);
         }
     }
 
