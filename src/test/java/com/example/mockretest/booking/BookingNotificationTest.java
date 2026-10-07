@@ -1,0 +1,123 @@
+package com.example.mockretest.booking;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.after;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
+
+import com.example.mockretest.booking.dto.BookingDoctorCreateRequest;
+import com.example.mockretest.booking.dto.BookingHoldRequest;
+import com.example.mockretest.booking.dto.BookingPatientRequest;
+import com.example.mockretest.booking.dto.BookingResponse;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.convention.TestBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+@SpringBootTest
+class BookingNotificationTest {
+
+    private static final long WAIT_MS = 5_000;
+
+    /** Test time is pinned so the 2030 slot below stays in the future whatever today's date is. */
+    private static final Instant NOW = Instant.parse("2030-01-14T12:00:00Z");
+
+    @TestBean(name = "bookingClock", methodName = "fixedClock")
+    private BookingClock bookingClock;
+
+    @MockitoSpyBean
+    private BookingNotifier notifier;
+
+    @Autowired
+    private BookingService bookingService;
+
+    @Autowired
+    private BookingDoctorService doctorService;
+
+    @Autowired
+    private BookingRepository bookingRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    private long bookingId;
+
+    static BookingClock fixedClock() {
+        return new BookingClock(new BookingTestClock(NOW));
+    }
+
+    @BeforeEach
+    void holdSlot() {
+        long doctorId = doctorService
+                .create(new BookingDoctorCreateRequest("Dr. Notify"))
+                .id();
+        bookingId = bookingService
+                .hold(new BookingHoldRequest(doctorId, "p1", LocalDateTime.of(2030, 3, 1, 11, 0)))
+                .bookingId();
+    }
+
+    @AfterEach
+    void resetSpy() {
+        reset(notifier);
+    }
+
+    @Test
+    void notificationIsSentOnlyAfterCommit() {
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            bookingService.confirm(bookingId, new BookingPatientRequest("p1"));
+            verify(notifier, never()).sendConfirmation(any());
+        });
+
+        ArgumentCaptor<BookingConfirmedEvent> event = ArgumentCaptor.forClass(BookingConfirmedEvent.class);
+        verify(notifier, timeout(WAIT_MS)).sendConfirmation(event.capture());
+        assertThat(event.getValue().bookingId()).isEqualTo(bookingId);
+        assertThat(event.getValue().patientId()).isEqualTo("p1");
+    }
+
+    @Test
+    void noNotificationWhenTransactionRollsBack() {
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            bookingService.confirm(bookingId, new BookingPatientRequest("p1"));
+            tx.setRollbackOnly();
+        });
+
+        verify(notifier, after(200).never()).sendConfirmation(any());
+        assertThat(bookingRepository.findById(bookingId).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.HELD);
+    }
+
+    @Test
+    void confirmDoesNotWaitForNotification() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch delivered = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    release.await(WAIT_MS, TimeUnit.MILLISECONDS);
+                    delivered.countDown();
+                    return null;
+                })
+                .when(notifier)
+                .sendConfirmation(any());
+
+        BookingResponse response = bookingService.confirm(bookingId, new BookingPatientRequest("p1"));
+
+        assertThat(response.status()).isEqualTo(BookingStatus.CONFIRMED);
+        assertThat(delivered.getCount()).isEqualTo(1);
+        verify(notifier, timeout(WAIT_MS)).sendConfirmation(any());
+        release.countDown();
+        assertThat(delivered.await(WAIT_MS, TimeUnit.MILLISECONDS)).isTrue();
+    }
+}
