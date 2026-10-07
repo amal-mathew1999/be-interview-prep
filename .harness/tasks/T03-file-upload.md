@@ -7,6 +7,7 @@ owns:
   - src/main/java/com/example/mockretest/files/**
   - src/test/java/com/example/mockretest/files/**
   - src/main/resources/files.properties
+  - src/main/resources/application.properties   # ONLY the spring.servlet.multipart.* keys (app-level, documented); no other task edits this file
 ---
 
 ## Goal
@@ -25,6 +26,7 @@ Service to upload, list, download and delete files safely.
 - AC10: Automated tests cover: valid PNG/JPEG/PDF upload, renamed executable rejected, oversized rejected, traversal filename stored safely inside storage dir, download name header, delete removes file from disk.
 
 ## Out of scope
+- 405 / unmapped-path errors raised before handler selection: handled globally by Q6 (`common/error`).
 - Authentication, virus scanning, any other feature package, `application.properties`, `pom.xml`.
 
 ## Implementation notes
