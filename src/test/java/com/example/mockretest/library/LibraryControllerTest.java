@@ -44,8 +44,8 @@ class LibraryControllerTest {
     @TestConfiguration
     static class FixedClockConfig {
         @Bean
-        Clock libraryClock() {
-            return Clock.fixed(Instant.parse("2026-06-15T00:00:00Z"), ZoneOffset.UTC);
+        LibraryClock libraryClock() {
+            return new LibraryClock(Clock.fixed(Instant.parse("2026-06-15T00:00:00Z"), ZoneOffset.UTC));
         }
     }
 

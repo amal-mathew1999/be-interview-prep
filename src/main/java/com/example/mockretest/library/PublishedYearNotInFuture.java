@@ -8,7 +8,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/** The annotated year must not be after the current year (per the {@code libraryClock}). Null is valid. */
+/** The annotated year must not be after the current year (per the {@link LibraryClock}). Null is valid. */
 @Documented
 @Constraint(validatedBy = PublishedYearNotInFutureValidator.class)
 @Target({ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT})

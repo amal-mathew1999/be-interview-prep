@@ -41,7 +41,8 @@ class LibraryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new LibraryService(bookRepository, loanRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+        service =
+                new LibraryService(bookRepository, loanRepository, new LibraryClock(Clock.fixed(NOW, ZoneOffset.UTC)));
     }
 
     private static BookRequest request(String isbn) {

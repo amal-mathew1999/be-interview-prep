@@ -3,13 +3,10 @@ package com.example.mockretest.library;
 import com.example.mockretest.library.dto.BookRequest;
 import com.example.mockretest.library.dto.BookResponse;
 import com.example.mockretest.library.dto.LoanResponse;
-import java.time.Clock;
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import org.hibernate.exception.ConstraintViolationException;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,10 +17,9 @@ public class LibraryService {
 
     private final BookRepository bookRepository;
     private final LoanRepository loanRepository;
-    private final Clock clock;
+    private final LibraryClock clock;
 
-    public LibraryService(
-            BookRepository bookRepository, LoanRepository loanRepository, @Qualifier("libraryClock") Clock clock) {
+    public LibraryService(BookRepository bookRepository, LoanRepository loanRepository, LibraryClock clock) {
         this.bookRepository = bookRepository;
         this.loanRepository = loanRepository;
         this.clock = clock;
@@ -79,7 +75,7 @@ public class LibraryService {
             throw notFoundOr(bookId, new BookUnavailableException(bookId));
         }
         Book book = findBook(bookId);
-        Loan loan = loanRepository.save(new Loan(book, memberId, Instant.now(clock)));
+        Loan loan = loanRepository.save(new Loan(book, memberId, clock.now()));
         return toResponse(loan);
     }
 
@@ -91,7 +87,7 @@ public class LibraryService {
         Loan loan = loanRepository
                 .findFirstByBookIdAndReturnedAtIsNull(bookId)
                 .orElseThrow(() -> new BookNotBorrowedException(bookId));
-        loan.markReturned(Instant.now(clock));
+        loan.markReturned(clock.now());
         return toResponse(loan);
     }
 

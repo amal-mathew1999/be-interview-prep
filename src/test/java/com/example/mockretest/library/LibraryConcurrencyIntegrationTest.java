@@ -62,14 +62,25 @@ class LibraryConcurrencyIntegrationTest {
                     .hasValueSatisfying(book -> assertThat(book.isAvailable()).isTrue());
             second.executeWithoutResult(inner -> competing.run());
             ownWrite.accept(bookId);
-            rollBackIfFailed(status);
+            convertGlobalRollbackOnlyToLocal(status);
         });
     }
 
-    /** A rejected write marks the shared transaction rollback-only; roll back quietly instead of failing commit. */
-    private static void rollBackIfFailed(TransactionStatus status) {
-        if (status.isRollbackOnly()) {
-            status.setRollbackOnly();
+    /**
+     * Converts a <em>global</em> rollback-only mark into a <em>local</em> one so the outer transaction rolls back
+     * quietly instead of failing its commit.
+     *
+     * <p>When the service's inner {@code @Transactional} call rejects the write, it joins this outer transaction and
+     * marks the shared resource (the JPA transaction) rollback-only — the global flag. {@link
+     * TransactionStatus#isRollbackOnly()} reports that global flag too, but {@code TransactionTemplate} only checks
+     * the <em>local</em> flag before deciding to commit; committing a globally rollback-only transaction would throw
+     * {@code UnexpectedRollbackException}. Calling {@link TransactionStatus#setRollbackOnly()} sets the local flag,
+     * so the template performs a plain rollback.
+     */
+    private static void convertGlobalRollbackOnlyToLocal(TransactionStatus status) {
+        boolean globalOrLocalRollbackOnly = status.isRollbackOnly();
+        if (globalOrLocalRollbackOnly) {
+            status.setRollbackOnly(); // local flag: TransactionTemplate now rolls back instead of committing
         }
     }
 
@@ -135,7 +146,7 @@ class LibraryConcurrencyIntegrationTest {
         first.executeWithoutResult(status -> {
             second.executeWithoutResult(inner -> service.returnBook(id));
             assertThatThrownBy(() -> service.returnBook(id)).isInstanceOf(BookNotBorrowedException.class);
-            rollBackIfFailed(status);
+            convertGlobalRollbackOnlyToLocal(status);
         });
 
         assertThat(bookRepository.findById(id))

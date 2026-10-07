@@ -12,7 +12,7 @@ import org.springframework.context.annotation.PropertySource;
 public class LibraryConfig {
 
     @Bean
-    Clock libraryClock(LibraryProperties properties) {
-        return Clock.system(properties.zoneId());
+    LibraryClock libraryClock(LibraryProperties properties) {
+        return new LibraryClock(Clock.system(properties.zoneId()));
     }
 }
