@@ -5,15 +5,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.mockretest.ratelimit.RateLimitConfig;
+import com.example.mockretest.ratelimit.RateLimitInterceptor;
+import com.example.mockretest.ratelimit.RateLimitService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
-@AutoConfigureMockMvc
+@WebMvcTest(QuoteController.class)
+@Import({RateLimitConfig.class, RateLimitInterceptor.class, RateLimitService.class, QuoteService.class})
 class QuoteControllerTest {
 
     @Autowired
@@ -26,5 +29,10 @@ class QuoteControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.text").isNotEmpty())
                 .andExpect(jsonPath("$.author").isNotEmpty());
+    }
+
+    @Test
+    void returns401WhenApiKeyMissing() throws Exception {
+        mockMvc.perform(get("/api/quotes/random")).andExpect(status().isUnauthorized());
     }
 }

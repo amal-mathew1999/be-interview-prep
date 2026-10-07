@@ -60,6 +60,14 @@ class RateLimitServiceTest {
     }
 
     @Test
+    void retryAfterRoundsUpSubMillisecondRemainder() {
+        exhaust("key-a");
+        clock.advance(Duration.ofSeconds(20).minusNanos(500));
+
+        assertThat(service.tryAcquire("key-a").retryAfterSeconds()).isEqualTo(41);
+    }
+
+    @Test
     void retryAfterIsAtLeastOneSecond() {
         exhaust("key-a");
         clock.advance(Duration.ofMillis(59_999));

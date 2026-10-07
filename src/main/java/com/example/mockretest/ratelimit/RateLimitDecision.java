@@ -14,8 +14,10 @@ public record RateLimitDecision(boolean allowed, int limit, int remaining, Durat
 
     /** Whole seconds until the client may retry, rounded up and never less than one. */
     public long retryAfterSeconds() {
-        long millis = retryAfter.toMillis();
-        long seconds = (millis + 999) / 1000;
+        long seconds = retryAfter.getSeconds();
+        if (retryAfter.getNano() > 0) {
+            seconds++;
+        }
         return Math.max(1, seconds);
     }
 }

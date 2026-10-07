@@ -101,11 +101,13 @@ class RateLimitIntegrationTest {
     void missingApiKeyReturns401ProblemJson() throws Exception {
         mockMvc.perform(get(RANDOM_QUOTE))
                 .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "ApiKey header=\"X-API-Key\""))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.title").value("Unauthorized"))
                 .andExpect(jsonPath("$.detail").value("Missing X-API-Key header."))
-                .andExpect(jsonPath("$.instance").value(RANDOM_QUOTE));
+                .andExpect(jsonPath("$.instance").value(RANDOM_QUOTE))
+                .andExpect(jsonPath("$.properties").doesNotExist());
     }
 
     @Test
