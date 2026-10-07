@@ -16,10 +16,13 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.ErrorResponse;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Renders every error that reaches the servlet container's error path (405, unmapped 404, eager multipart limits,
@@ -49,9 +52,10 @@ public class CommonProblemDetailErrorController implements ErrorController {
         HttpStatusCode status = resolveStatus(request);
         Throwable error = errorAttributes.getError(new ServletWebRequest(request));
         String path = resolvePath(request);
+        String method = resolveMethod(request, error);
 
         if (!status.is4xxClientError()) {
-            logServerError(request, path, status, error);
+            logServerError(request, method, path, status, error);
         }
 
         if (response.isCommitted()) {
@@ -59,13 +63,13 @@ public class CommonProblemDetailErrorController implements ErrorController {
             // writing a problem body would append JSON to a partial payload. Send nothing more.
             log.warn(
                     "Cannot render problem for {} {} (status {}): response already committed",
-                    request.getMethod(),
+                    method,
                     path,
                     status.value());
             return ResponseEntity.status(status).build();
         }
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, resolveDetail(status, error, request, path));
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, resolveDetail(status, error, method, path));
         problem.setType(CommonProblemTypes.forStatus(status.value()));
         problem.setTitle(resolveTitle(status));
         problem.setInstance(URI.create(path));
@@ -89,12 +93,12 @@ public class CommonProblemDetailErrorController implements ErrorController {
      * logged with their stack trace by the container, so the throwable is only logged here when Spring resolved it.
      */
     private static void logServerError(
-            HttpServletRequest request, String path, HttpStatusCode status, Throwable error) {
+            HttpServletRequest request, String method, String path, HttpStatusCode status, Throwable error) {
         boolean loggedByContainer = request.getAttribute(RequestDispatcher.ERROR_EXCEPTION) != null;
         if (error != null && !loggedByContainer) {
-            log.error("Request {} {} failed with status {}", request.getMethod(), path, status.value(), error);
+            log.error("Request {} {} failed with status {}", method, path, status.value(), error);
         } else {
-            log.error("Request {} {} failed with status {}", request.getMethod(), path, status.value());
+            log.error("Request {} {} failed with status {}", method, path, status.value());
         }
     }
 
@@ -108,6 +112,23 @@ public class CommonProblemDetailErrorController implements ErrorController {
         }
         // Direct request to the error path without an error dispatch.
         return HttpStatus.NOT_FOUND;
+    }
+
+    /**
+     * The error dispatch is always made with the container's error-page method (GET), so the client's method is taken
+     * from the original exception when it carries one.
+     */
+    private static String resolveMethod(HttpServletRequest request, Throwable error) {
+        if (error instanceof HttpRequestMethodNotSupportedException ex) {
+            return ex.getMethod();
+        }
+        if (error instanceof NoResourceFoundException ex) {
+            return ex.getHttpMethod().name();
+        }
+        if (error instanceof NoHandlerFoundException ex) {
+            return ex.getHttpMethod();
+        }
+        return request.getMethod();
     }
 
     private static String resolveTitle(HttpStatusCode status) {
@@ -128,8 +149,7 @@ public class CommonProblemDetailErrorController implements ErrorController {
         }
     }
 
-    private static String resolveDetail(
-            HttpStatusCode status, Throwable error, HttpServletRequest request, String path) {
+    private static String resolveDetail(HttpStatusCode status, Throwable error, String method, String path) {
         if (!status.is4xxClientError()) {
             return GENERIC_SERVER_DETAIL;
         }
@@ -137,10 +157,10 @@ public class CommonProblemDetailErrorController implements ErrorController {
             return UPLOAD_TOO_LARGE_DETAIL;
         }
         if (status.isSameCodeAs(HttpStatus.NOT_FOUND)) {
-            return "No resource found for " + request.getMethod() + " " + path + ".";
+            return "No resource found for " + method + " " + path + ".";
         }
         if (status.isSameCodeAs(HttpStatus.METHOD_NOT_ALLOWED)) {
-            return methodNotAllowedDetail(request, error);
+            return methodNotAllowedDetail(method, error);
         }
         if (status.isSameCodeAs(HttpStatus.CONTENT_TOO_LARGE)) {
             return CONTENT_TOO_LARGE_DETAIL;
@@ -148,8 +168,8 @@ public class CommonProblemDetailErrorController implements ErrorController {
         return clientErrorDetail(status, error);
     }
 
-    private static String methodNotAllowedDetail(HttpServletRequest request, Throwable error) {
-        String detail = "Method " + request.getMethod() + " is not supported for this resource.";
+    private static String methodNotAllowedDetail(String method, Throwable error) {
+        String detail = "Method " + method + " is not supported for this resource.";
         if (error instanceof ErrorResponse errorResponse) {
             List<String> allow = errorResponse.getHeaders().getOrEmpty(HttpHeaders.ALLOW);
             if (!allow.isEmpty()) {
