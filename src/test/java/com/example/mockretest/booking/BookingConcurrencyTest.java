@@ -2,9 +2,9 @@ package com.example.mockretest.booking;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.mockretest.booking.dto.BookingDoctorCreateRequest;
 import com.example.mockretest.booking.dto.BookingHoldRequest;
 import com.example.mockretest.booking.dto.BookingResponse;
-import com.example.mockretest.booking.dto.DoctorCreateRequest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,15 +29,16 @@ class BookingConcurrencyTest {
     private BookingService bookingService;
 
     @Autowired
-    private DoctorService doctorService;
+    private BookingDoctorService doctorService;
 
     @Autowired
     private BookingSlotLockRepository slotLockRepository;
 
     @Test
     void exactlyOneOfTwentyConcurrentHoldsOnSameSlotSucceeds() throws Exception {
-        long doctorId =
-                doctorService.create(new DoctorCreateRequest("Dr. Concurrent")).id();
+        long doctorId = doctorService
+                .create(new BookingDoctorCreateRequest("Dr. Concurrent"))
+                .id();
         LocalDateTime slot = LocalDateTime.of(2030, 2, 1, 10, 0);
         CountDownLatch startGate = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(PATIENTS);

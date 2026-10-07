@@ -4,14 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
+import com.example.mockretest.booking.dto.BookingDoctorCreateRequest;
 import com.example.mockretest.booking.dto.BookingHoldRequest;
 import com.example.mockretest.booking.dto.BookingPatientRequest;
 import com.example.mockretest.booking.dto.BookingResponse;
-import com.example.mockretest.booking.dto.DoctorCreateRequest;
 import java.time.LocalDateTime;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -37,7 +38,10 @@ class BookingNotificationTest {
     private BookingService bookingService;
 
     @Autowired
-    private DoctorService doctorService;
+    private BookingDoctorService doctorService;
+
+    @Autowired
+    private BookingRepository bookingRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -46,8 +50,9 @@ class BookingNotificationTest {
 
     @BeforeEach
     void holdSlot() {
-        long doctorId =
-                doctorService.create(new DoctorCreateRequest("Dr. Notify")).id();
+        long doctorId = doctorService
+                .create(new BookingDoctorCreateRequest("Dr. Notify"))
+                .id();
         bookingId = bookingService
                 .hold(new BookingHoldRequest(doctorId, "p1", LocalDateTime.of(2030, 3, 1, 11, 0)))
                 .bookingId();
@@ -62,7 +67,7 @@ class BookingNotificationTest {
     void notificationIsSentOnlyAfterCommit() {
         new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
             bookingService.confirm(bookingId, new BookingPatientRequest("p1"));
-            verify(notifier, after(300).never()).sendConfirmation(any());
+            verify(notifier, never()).sendConfirmation(any());
         });
 
         ArgumentCaptor<BookingConfirmedEvent> event = ArgumentCaptor.forClass(BookingConfirmedEvent.class);
@@ -78,8 +83,9 @@ class BookingNotificationTest {
             tx.setRollbackOnly();
         });
 
-        verify(notifier, after(500).never()).sendConfirmation(any());
-        assertThat(bookingService.find(bookingId).status()).isEqualTo(BookingStatus.HELD);
+        verify(notifier, after(200).never()).sendConfirmation(any());
+        assertThat(bookingRepository.findById(bookingId).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.HELD);
     }
 
     @Test

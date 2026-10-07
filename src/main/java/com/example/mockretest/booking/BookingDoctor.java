@@ -9,7 +9,7 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "clinic_doctor")
-public class Doctor {
+public class BookingDoctor {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -18,9 +18,9 @@ public class Doctor {
     @Column(nullable = false)
     private String name;
 
-    protected Doctor() {}
+    protected BookingDoctor() {}
 
-    public Doctor(String name) {
+    public BookingDoctor(String name) {
         this.name = name;
     }
 

@@ -7,7 +7,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Controllable clock for tests: time only moves when {@link #advance(Duration)} is called. */
+/** Controllable clock for tests: time only moves via {@link #set(Instant)} or {@link #advance(Duration)}. */
 final class BookingTestClock extends Clock {
 
     private final AtomicReference<Instant> now;
@@ -20,6 +20,10 @@ final class BookingTestClock extends Clock {
     private BookingTestClock(AtomicReference<Instant> now, ZoneId zone) {
         this.now = now;
         this.zone = zone;
+    }
+
+    void set(Instant instant) {
+        now.set(instant);
     }
 
     void advance(Duration duration) {

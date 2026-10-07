@@ -1,7 +1,7 @@
 package com.example.mockretest.booking;
 
-import com.example.mockretest.booking.dto.DoctorCreateRequest;
-import com.example.mockretest.booking.dto.DoctorResponse;
+import com.example.mockretest.booking.dto.BookingDoctorCreateRequest;
+import com.example.mockretest.booking.dto.BookingDoctorResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.time.LocalDate;
@@ -20,17 +20,17 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @RestController
 @RequestMapping("/api/doctors")
-public class DoctorController {
+public class BookingDoctorController {
 
-    private final DoctorService doctorService;
+    private final BookingDoctorService doctorService;
 
-    public DoctorController(DoctorService doctorService) {
+    public BookingDoctorController(BookingDoctorService doctorService) {
         this.doctorService = doctorService;
     }
 
     @PostMapping
-    public ResponseEntity<DoctorResponse> create(@Valid @RequestBody DoctorCreateRequest request) {
-        DoctorResponse created = doctorService.create(request);
+    public ResponseEntity<BookingDoctorResponse> create(@Valid @RequestBody BookingDoctorCreateRequest request) {
+        BookingDoctorResponse created = doctorService.create(request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(created.id())
@@ -39,7 +39,7 @@ public class DoctorController {
     }
 
     @GetMapping("/{doctorId}")
-    public DoctorResponse get(@PathVariable long doctorId) {
+    public BookingDoctorResponse get(@PathVariable long doctorId) {
         return doctorService.find(doctorId);
     }
 

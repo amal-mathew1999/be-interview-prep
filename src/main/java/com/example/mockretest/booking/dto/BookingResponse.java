@@ -5,9 +5,4 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 
 public record BookingResponse(
-        Long bookingId,
-        Long doctorId,
-        String patientId,
-        LocalDateTime start,
-        BookingStatus status,
-        Instant expiresAt) {}
+        Long bookingId, Long doctorId, LocalDateTime start, BookingStatus status, Instant expiresAt) {}

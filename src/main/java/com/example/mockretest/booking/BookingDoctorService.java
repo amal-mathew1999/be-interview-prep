@@ -1,31 +1,29 @@
 package com.example.mockretest.booking;
 
-import com.example.mockretest.booking.dto.DoctorCreateRequest;
-import com.example.mockretest.booking.dto.DoctorResponse;
-import java.time.Clock;
+import com.example.mockretest.booking.dto.BookingDoctorCreateRequest;
+import com.example.mockretest.booking.dto.BookingDoctorResponse;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class DoctorService {
+public class BookingDoctorService {
 
-    private final DoctorRepository doctorRepository;
+    private final BookingDoctorRepository doctorRepository;
     private final BookingSlotLockRepository slotLockRepository;
     private final BookingSlotPolicy slotPolicy;
-    private final Clock clock;
+    private final BookingClock clock;
 
-    public DoctorService(
-            DoctorRepository doctorRepository,
+    public BookingDoctorService(
+            BookingDoctorRepository doctorRepository,
             BookingSlotLockRepository slotLockRepository,
             BookingSlotPolicy slotPolicy,
-            @Qualifier("bookingClock") Clock clock) {
+            BookingClock clock) {
         this.doctorRepository = doctorRepository;
         this.slotLockRepository = slotLockRepository;
         this.slotPolicy = slotPolicy;
@@ -33,26 +31,28 @@ public class DoctorService {
     }
 
     @Transactional
-    public DoctorResponse create(DoctorCreateRequest request) {
-        Doctor doctor = doctorRepository.save(new Doctor(request.name().strip()));
+    public BookingDoctorResponse create(BookingDoctorCreateRequest request) {
+        BookingDoctor doctor =
+                doctorRepository.save(new BookingDoctor(request.name().strip()));
         return toResponse(doctor);
     }
 
     @Transactional(readOnly = true)
-    public DoctorResponse find(long doctorId) {
+    public BookingDoctorResponse find(long doctorId) {
         return doctorRepository
                 .findById(doctorId)
-                .map(DoctorService::toResponse)
+                .map(BookingDoctorService::toResponse)
                 .orElseThrow(() -> new BookingDoctorNotFoundException(doctorId));
     }
 
-    /** Slot starts on {@code date} that are neither confirmed nor covered by an unexpired hold. */
+    /** Future slot starts on {@code date} that are neither confirmed nor covered by an unexpired hold. */
     @Transactional(readOnly = true)
     public List<LocalDateTime> availableSlots(long doctorId, LocalDate date) {
         if (!doctorRepository.existsById(doctorId)) {
             throw new BookingDoctorNotFoundException(doctorId);
         }
         Instant now = clock.instant();
+        LocalDateTime localNow = clock.localNow();
         Set<LocalDateTime> taken = slotLockRepository
                 .findByDoctorIdAndSlotStartGreaterThanEqualAndSlotStartLessThan(
                         doctorId, date.atStartOfDay(), date.plusDays(1).atStartOfDay())
@@ -61,11 +61,12 @@ public class DoctorService {
                 .map(BookingSlotLock::getSlotStart)
                 .collect(Collectors.toSet());
         return slotPolicy.slotsFor(date).stream()
+                .filter(slot -> !slot.isBefore(localNow))
                 .filter(slot -> !taken.contains(slot))
                 .toList();
     }
 
-    private static DoctorResponse toResponse(Doctor doctor) {
-        return new DoctorResponse(doctor.getId(), doctor.getName());
+    private static BookingDoctorResponse toResponse(BookingDoctor doctor) {
+        return new BookingDoctorResponse(doctor.getId(), doctor.getName());
     }
 }

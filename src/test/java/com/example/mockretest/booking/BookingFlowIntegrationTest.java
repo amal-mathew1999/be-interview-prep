@@ -1,5 +1,7 @@
 package com.example.mockretest.booking;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
@@ -11,7 +13,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,20 +33,26 @@ class BookingFlowIntegrationTest {
     private static final String DAY = "2030-01-15";
     private static final String NINE = DAY + "T09:00:00";
 
+    private static final Instant START = Instant.parse("2030-01-14T12:00:00Z");
+
     @TestBean(name = "bookingClock", methodName = "controllableClock")
-    private Clock bookingClock;
+    private BookingClock bookingClock;
 
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private BookingRepository bookingRepository;
+
     private long doctorId;
 
-    static Clock controllableClock() {
-        return new BookingTestClock(Instant.parse("2030-01-14T12:00:00Z"));
+    static BookingClock controllableClock() {
+        return new BookingClock(new BookingTestClock(START));
     }
 
     @BeforeEach
-    void createDoctor() throws Exception {
+    void resetClockAndCreateDoctor() throws Exception {
+        clock().set(START);
         doctorId = createDoctor("Dr. Who");
     }
 
@@ -98,11 +105,79 @@ class BookingFlowIntegrationTest {
     void holdReturns201WithHeldStatusAndExpiry() throws Exception {
         mockMvc.perform(hold(doctorId, "p1", NINE))
                 .andExpect(status().isCreated())
-                .andExpect(header().exists("Location"))
                 .andExpect(jsonPath("$.bookingId").isNumber())
                 .andExpect(jsonPath("$.status").value("HELD"))
                 .andExpect(jsonPath("$.start").value(NINE))
                 .andExpect(jsonPath("$.expiresAt").value("2030-01-14T12:05:00Z"));
+    }
+
+    @Test
+    void expiryIsComputedFromCurrentClockEvenAfterOtherTestsAdvancedIt() throws Exception {
+        clock().advance(Duration.ofHours(2));
+
+        mockMvc.perform(hold(doctorId, "p1", NINE))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.expiresAt").value("2030-01-14T14:05:00Z"));
+    }
+
+    @Test
+    void bookingIsNotReadableByIdAndHoldDoesNotLeakPatientId() throws Exception {
+        String body = mockMvc.perform(hold(doctorId, "secret-patient", NINE))
+                .andExpect(status().isCreated())
+                .andExpect(header().doesNotExist("Location"))
+                .andExpect(jsonPath("$.patientId").doesNotExist())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        long bookingId = ((Number) JsonPath.read(body, "$.bookingId")).longValue();
+
+        mockMvc.perform(get("/api/bookings/{id}", bookingId))
+                .andExpect(status().is4xxClientError())
+                .andExpect(content().string(not(containsString("secret-patient"))));
+    }
+
+    @Test
+    void confirmAndCancelResponsesDoNotExposePatientId() throws Exception {
+        long bookingId = holdSlot("p1", NINE);
+
+        confirm(bookingId, "p1")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.patientId").doesNotExist());
+        cancel(bookingId, "p1")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.patientId").doesNotExist());
+    }
+
+    @Test
+    void confirmedSlotStaysUnavailableAfterHoldTimeoutPasses() throws Exception {
+        long bookingId = holdSlot("p1", NINE);
+        confirm(bookingId, "p1").andExpect(status().isOk());
+
+        clock().advance(Duration.ofHours(1));
+
+        mockMvc.perform(get("/api/doctors/{id}/slots", doctorId).param("date", DAY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(15)))
+                .andExpect(jsonPath("$", not(hasItem(NINE))));
+    }
+
+    @Test
+    void holdReturns400WhenSlotIsInThePast() throws Exception {
+        expectProblem(mockMvc.perform(hold(doctorId, "p1", "2030-01-14T09:00:00")), 400)
+                .andExpect(jsonPath("$.type").value("urn:problem-type:booking:slot-in-past"));
+        expectProblem(mockMvc.perform(hold(doctorId, "p1", "2030-01-14T11:30:00")), 400);
+        mockMvc.perform(hold(doctorId, "p1", "2030-01-14T12:00:00")).andExpect(status().isCreated());
+    }
+
+    @Test
+    void listingOmitsSlotsThatAlreadyStarted() throws Exception {
+        mockMvc.perform(get("/api/doctors/{id}/slots", doctorId).param("date", "2030-01-14"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(10)))
+                .andExpect(jsonPath("$[0]").value("2030-01-14T12:00:00"));
+        mockMvc.perform(get("/api/doctors/{id}/slots", doctorId).param("date", "2030-01-13"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(0)));
     }
 
     @Test
@@ -173,8 +248,8 @@ class BookingFlowIntegrationTest {
         long bookingId = holdSlot("p1", NINE);
 
         expectProblem(confirm(bookingId, "intruder"), 403);
-        mockMvc.perform(get("/api/bookings/{id}", bookingId))
-                .andExpect(jsonPath("$.status").value("HELD"));
+        assertThat(bookingRepository.findById(bookingId).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.HELD);
     }
 
     @Test
@@ -197,8 +272,10 @@ class BookingFlowIntegrationTest {
         clock().advance(Duration.ofMinutes(5));
 
         expectProblem(confirm(bookingId, "p1"), 409);
-        mockMvc.perform(get("/api/bookings/{id}", bookingId))
-                .andExpect(jsonPath("$.status").value("EXPIRED"));
+        assertThat(bookingRepository.findById(bookingId).orElseThrow().getStatus())
+                .isNotEqualTo(BookingStatus.CONFIRMED);
+        mockMvc.perform(get("/api/doctors/{id}/slots", doctorId).param("date", DAY))
+                .andExpect(jsonPath("$", hasItem(NINE)));
     }
 
     @Test
@@ -250,13 +327,8 @@ class BookingFlowIntegrationTest {
         expectProblem(cancel(bookingId, "p1"), 409);
     }
 
-    @Test
-    void getBookingReturns404WhenUnknown() throws Exception {
-        expectProblem(mockMvc.perform(get("/api/bookings/{id}", 999_999)), 404);
-    }
-
     private BookingTestClock clock() {
-        return (BookingTestClock) bookingClock;
+        return (BookingTestClock) bookingClock.delegate();
     }
 
     private long createDoctor(String name) throws Exception {

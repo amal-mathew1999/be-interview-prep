@@ -14,8 +14,8 @@ import org.springframework.scheduling.annotation.EnableAsync;
 public class BookingConfig {
 
     @Bean
-    public Clock bookingClock() {
-        return Clock.systemDefaultZone();
+    public BookingClock bookingClock() {
+        return new BookingClock(Clock.systemDefaultZone());
     }
 
     @Bean
