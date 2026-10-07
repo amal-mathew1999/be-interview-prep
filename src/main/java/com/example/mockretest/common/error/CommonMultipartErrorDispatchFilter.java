@@ -23,7 +23,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * same oversized body again and fail before the error controller runs, leaving an empty response. The error path never
  * needs the request body, so it is presented as a non-multipart request.
  */
-public class MultipartErrorDispatchFilter extends OncePerRequestFilter {
+public class CommonMultipartErrorDispatchFilter extends OncePerRequestFilter {
 
     private static final String MULTIPART_PREFIX = "multipart/";
 

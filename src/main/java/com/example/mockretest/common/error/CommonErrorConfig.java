@@ -11,9 +11,9 @@ import org.springframework.core.Ordered;
 public class CommonErrorConfig {
 
     @Bean
-    FilterRegistrationBean<MultipartErrorDispatchFilter> multipartErrorDispatchFilter() {
-        FilterRegistrationBean<MultipartErrorDispatchFilter> registration =
-                new FilterRegistrationBean<>(new MultipartErrorDispatchFilter());
+    FilterRegistrationBean<CommonMultipartErrorDispatchFilter> commonMultipartErrorDispatchFilter() {
+        FilterRegistrationBean<CommonMultipartErrorDispatchFilter> registration =
+                new FilterRegistrationBean<>(new CommonMultipartErrorDispatchFilter());
         registration.setDispatcherTypes(DispatcherType.ERROR);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;

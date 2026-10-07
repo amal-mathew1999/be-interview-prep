@@ -28,9 +28,9 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
  */
 @RestController
 @RequestMapping("${server.error.path:${error.path:/error}}")
-public class ProblemDetailErrorController implements ErrorController {
+public class CommonProblemDetailErrorController implements ErrorController {
 
-    private static final Logger log = LoggerFactory.getLogger(ProblemDetailErrorController.class);
+    private static final Logger log = LoggerFactory.getLogger(CommonProblemDetailErrorController.class);
 
     static final String GENERIC_SERVER_DETAIL = "An unexpected error occurred. Please try again later.";
     static final String UPLOAD_TOO_LARGE_DETAIL = "The request exceeds the maximum allowed upload size.";
@@ -40,7 +40,7 @@ public class ProblemDetailErrorController implements ErrorController {
 
     private final ErrorAttributes errorAttributes;
 
-    public ProblemDetailErrorController(ErrorAttributes errorAttributes) {
+    public CommonProblemDetailErrorController(ErrorAttributes errorAttributes) {
         this.errorAttributes = errorAttributes;
     }
 
@@ -50,8 +50,19 @@ public class ProblemDetailErrorController implements ErrorController {
         Throwable error = errorAttributes.getError(new ServletWebRequest(request));
         String path = resolvePath(request);
 
-        if (status.is5xxServerError()) {
+        if (!status.is4xxClientError()) {
             logServerError(request, path, status, error);
+        }
+
+        if (response.isCommitted()) {
+            // Part of the body was already sent (e.g. streaming); the container includes this error page into it, so
+            // writing a problem body would append JSON to a partial payload. Send nothing more.
+            log.warn(
+                    "Cannot render problem for {} {} (status {}): response already committed",
+                    request.getMethod(),
+                    path,
+                    status.value());
+            return ResponseEntity.status(status).build();
         }
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, resolveDetail(status, error, request, path));
