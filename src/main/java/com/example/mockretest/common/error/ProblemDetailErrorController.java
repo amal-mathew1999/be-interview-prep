@@ -11,6 +11,7 @@ import org.springframework.boot.webmvc.error.ErrorAttributes;
 import org.springframework.boot.webmvc.error.ErrorController;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +34,9 @@ public class ProblemDetailErrorController implements ErrorController {
 
     static final String GENERIC_SERVER_DETAIL = "An unexpected error occurred. Please try again later.";
     static final String UPLOAD_TOO_LARGE_DETAIL = "The request exceeds the maximum allowed upload size.";
+    static final String CONTENT_TOO_LARGE_DETAIL = "The request content is too large.";
+    static final String CLIENT_ERROR_TITLE = "Client Error";
+    static final String SERVER_ERROR_TITLE = "Server Error";
 
     private final ErrorAttributes errorAttributes;
 
@@ -42,17 +46,17 @@ public class ProblemDetailErrorController implements ErrorController {
 
     @RequestMapping
     public ResponseEntity<ProblemDetail> error(HttpServletRequest request, HttpServletResponse response) {
-        HttpStatus status = resolveStatus(request);
+        HttpStatusCode status = resolveStatus(request);
         Throwable error = errorAttributes.getError(new ServletWebRequest(request));
         String path = resolvePath(request);
 
         if (status.is5xxServerError()) {
-            log.error("Request {} {} failed with status {}", request.getMethod(), path, status.value(), error);
+            logServerError(request, path, status, error);
         }
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, resolveDetail(status, error, request, path));
         problem.setType(CommonProblemTypes.forStatus(status.value()));
-        problem.setTitle(status.getReasonPhrase());
+        problem.setTitle(resolveTitle(status));
         problem.setInstance(URI.create(path));
 
         HttpHeaders headers = new HttpHeaders();
@@ -69,17 +73,38 @@ public class ProblemDetailErrorController implements ErrorController {
                 .body(problem);
     }
 
-    private static HttpStatus resolveStatus(HttpServletRequest request) {
+    /**
+     * Exceptions that propagated to the container (exposed as {@link RequestDispatcher#ERROR_EXCEPTION}) were already
+     * logged with their stack trace by the container, so the throwable is only logged here when Spring resolved it.
+     */
+    private static void logServerError(
+            HttpServletRequest request, String path, HttpStatusCode status, Throwable error) {
+        boolean loggedByContainer = request.getAttribute(RequestDispatcher.ERROR_EXCEPTION) != null;
+        if (error != null && !loggedByContainer) {
+            log.error("Request {} {} failed with status {}", request.getMethod(), path, status.value(), error);
+        } else {
+            log.error("Request {} {} failed with status {}", request.getMethod(), path, status.value());
+        }
+    }
+
+    private static HttpStatusCode resolveStatus(HttpServletRequest request) {
         Object code = request.getAttribute(RequestDispatcher.ERROR_STATUS_CODE);
         if (code instanceof Integer value) {
-            HttpStatus status = HttpStatus.resolve(value);
-            if (status != null && status.isError()) {
-                return status;
+            if (value >= 400 && value <= 999) {
+                return HttpStatusCode.valueOf(value);
             }
             return HttpStatus.INTERNAL_SERVER_ERROR;
         }
         // Direct request to the error path without an error dispatch.
         return HttpStatus.NOT_FOUND;
+    }
+
+    private static String resolveTitle(HttpStatusCode status) {
+        HttpStatus known = HttpStatus.resolve(status.value());
+        if (known != null) {
+            return known.getReasonPhrase();
+        }
+        return status.is4xxClientError() ? CLIENT_ERROR_TITLE : SERVER_ERROR_TITLE;
     }
 
     private static String resolvePath(HttpServletRequest request) {
@@ -92,16 +117,24 @@ public class ProblemDetailErrorController implements ErrorController {
         }
     }
 
-    private static String resolveDetail(HttpStatus status, Throwable error, HttpServletRequest request, String path) {
-        if (status.is5xxServerError()) {
+    private static String resolveDetail(
+            HttpStatusCode status, Throwable error, HttpServletRequest request, String path) {
+        if (!status.is4xxClientError()) {
             return GENERIC_SERVER_DETAIL;
         }
-        return switch (status) {
-            case NOT_FOUND -> "No resource found for " + request.getMethod() + " " + path + ".";
-            case METHOD_NOT_ALLOWED -> methodNotAllowedDetail(request, error);
-            case CONTENT_TOO_LARGE -> UPLOAD_TOO_LARGE_DETAIL;
-            default -> clientErrorDetail(status, error);
-        };
+        if (error instanceof MaxUploadSizeExceededException) {
+            return UPLOAD_TOO_LARGE_DETAIL;
+        }
+        if (status.isSameCodeAs(HttpStatus.NOT_FOUND)) {
+            return "No resource found for " + request.getMethod() + " " + path + ".";
+        }
+        if (status.isSameCodeAs(HttpStatus.METHOD_NOT_ALLOWED)) {
+            return methodNotAllowedDetail(request, error);
+        }
+        if (status.isSameCodeAs(HttpStatus.CONTENT_TOO_LARGE)) {
+            return CONTENT_TOO_LARGE_DETAIL;
+        }
+        return clientErrorDetail(status, error);
     }
 
     private static String methodNotAllowedDetail(HttpServletRequest request, Throwable error) {
@@ -115,10 +148,7 @@ public class ProblemDetailErrorController implements ErrorController {
         return detail;
     }
 
-    private static String clientErrorDetail(HttpStatus status, Throwable error) {
-        if (error instanceof MaxUploadSizeExceededException) {
-            return UPLOAD_TOO_LARGE_DETAIL;
-        }
+    private static String clientErrorDetail(HttpStatusCode status, Throwable error) {
         // Framework ErrorResponse details are written for clients; arbitrary exception/sendError messages are not.
         if (error instanceof ErrorResponse errorResponse) {
             String detail = errorResponse.getBody().getDetail();
@@ -126,6 +156,6 @@ public class ProblemDetailErrorController implements ErrorController {
                 return detail;
             }
         }
-        return "The request could not be completed (" + status.value() + " " + status.getReasonPhrase() + ").";
+        return "The request could not be completed (" + status.value() + " " + resolveTitle(status) + ").";
     }
 }

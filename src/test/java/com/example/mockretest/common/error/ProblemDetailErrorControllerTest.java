@@ -2,21 +2,36 @@ package com.example.mockretest.common.error;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.Ordered;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -37,8 +52,10 @@ import org.springframework.web.multipart.MultipartFile;
         properties = {"spring.servlet.multipart.max-file-size=1KB", "spring.servlet.multipart.max-request-size=2KB"})
 @Import({
     ProblemDetailErrorControllerTest.ErrorProbeController.class,
-    ProblemDetailErrorControllerTest.ErrorProbeHandler.class
+    ProblemDetailErrorControllerTest.ErrorProbeHandler.class,
+    ProblemDetailErrorControllerTest.ErrorDispatchProbeConfig.class
 })
+@ExtendWith(OutputCaptureExtension.class)
 class ProblemDetailErrorControllerTest {
 
     private static final String SECRET = "SecretInternalDetail-42";
@@ -47,6 +64,9 @@ class ProblemDetailErrorControllerTest {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    private ErrorDispatchHeaderProbe headerProbe;
 
     private RestClient client;
 
@@ -117,6 +137,56 @@ class ProblemDetailErrorControllerTest {
 
         assertProblem(response, HttpStatus.CONTENT_TOO_LARGE, "/test-errors/upload");
         assertThat((String) response.getBody().get("detail")).containsIgnoringCase("upload size");
+        assertThat(headerProbe.headerNames.get())
+                .isNotNull()
+                .isNotEmpty()
+                .noneMatch(name -> name.equalsIgnoreCase(HttpHeaders.CONTENT_TYPE));
+    }
+
+    @Test
+    void returnsGenericContentTooLargeDetailForNonMultipartSendError413() {
+        ResponseEntity<Map<String, Object>> response =
+                client.get().uri("/test-errors/send-error-413").retrieve().toEntity(JSON_MAP);
+
+        assertProblem(response, HttpStatus.CONTENT_TOO_LARGE, "/test-errors/send-error-413");
+        assertThat(response.getBody()).containsEntry("detail", ProblemDetailErrorController.CONTENT_TOO_LARGE_DETAIL);
+        assertNoInternalsLeaked(response);
+    }
+
+    @Test
+    void preservesNonStandardClientStatusFromSendError() {
+        ResponseEntity<Map<String, Object>> response =
+                client.get().uri("/test-errors/send-error-499").retrieve().toEntity(JSON_MAP);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatusCode.valueOf(499));
+        assertThat(response.getHeaders().getContentType()).isNotNull();
+        assertThat(response.getHeaders().getContentType().isCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .isTrue();
+        assertThat(response.getBody())
+                .containsEntry("type", "urn:problem-type:common:499")
+                .containsEntry("title", "Client Error")
+                .containsEntry("status", 499)
+                .containsEntry("instance", "/test-errors/send-error-499");
+        assertThat((String) response.getBody().get("detail"))
+                .isNotBlank()
+                .contains("499")
+                .isNotEqualTo(ProblemDetailErrorController.GENERIC_SERVER_DETAIL);
+        assertNoInternalsLeaked(response);
+    }
+
+    @Test
+    void logsUncaughtExceptionStackTraceOnlyOnce(CapturedOutput output) {
+        ResponseEntity<Map<String, Object>> response =
+                client.get().uri("/test-errors/boom").retrieve().toEntity(JSON_MAP);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(output.getAll()).contains("Request GET /test-errors/boom failed with status 500");
+        String stackTraceHeader = "java.lang.IllegalStateException: " + SECRET;
+        long stackTraces = output.getAll()
+                .lines()
+                .filter(line -> line.strip().startsWith(stackTraceHeader))
+                .count();
+        assertThat(stackTraces).isEqualTo(1);
     }
 
     @Test
@@ -212,6 +282,16 @@ class ProblemDetailErrorControllerTest {
             response.sendError(HttpStatus.CONFLICT.value(), SECRET);
         }
 
+        @GetMapping("/test-errors/send-error-413")
+        void sendError413(HttpServletResponse response) throws IOException {
+            response.sendError(HttpStatus.CONTENT_TOO_LARGE.value(), SECRET);
+        }
+
+        @GetMapping("/test-errors/send-error-499")
+        void sendError499(HttpServletResponse response) throws IOException {
+            response.sendError(499, SECRET);
+        }
+
         @GetMapping("/test-errors/handled")
         String handled() {
             throw new FeatureHandledException();
@@ -231,6 +311,32 @@ class ProblemDetailErrorControllerTest {
             problem.setTitle("Handled by feature");
             problem.setInstance(URI.create("/test-errors/handled"));
             return problem;
+        }
+    }
+
+    /** Records the request header names seen by the error dispatch after {@link MultipartErrorDispatchFilter}. */
+    static class ErrorDispatchHeaderProbe {
+        final AtomicReference<List<String>> headerNames = new AtomicReference<>();
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class ErrorDispatchProbeConfig {
+
+        @Bean
+        ErrorDispatchHeaderProbe errorDispatchHeaderProbe() {
+            return new ErrorDispatchHeaderProbe();
+        }
+
+        @Bean
+        FilterRegistrationBean<Filter> errorDispatchHeaderProbeFilter(ErrorDispatchHeaderProbe probe) {
+            Filter filter = (request, response, chain) -> {
+                probe.headerNames.set(Collections.list(((HttpServletRequest) request).getHeaderNames()));
+                chain.doFilter(request, response);
+            };
+            FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>(filter);
+            registration.setDispatcherTypes(DispatcherType.ERROR);
+            registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
+            return registration;
         }
     }
 }

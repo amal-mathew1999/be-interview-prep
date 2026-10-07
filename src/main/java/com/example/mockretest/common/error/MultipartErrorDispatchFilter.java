@@ -7,8 +7,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.List;
 import org.springframework.http.HttpHeaders;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -63,6 +65,19 @@ public class MultipartErrorDispatchFilter extends OncePerRequestFilter {
             return HttpHeaders.CONTENT_TYPE.equalsIgnoreCase(name)
                     ? Collections.emptyEnumeration()
                     : super.getHeaders(name);
+        }
+
+        @Override
+        public Enumeration<String> getHeaderNames() {
+            List<String> names = new ArrayList<>();
+            Enumeration<String> original = super.getHeaderNames();
+            while (original != null && original.hasMoreElements()) {
+                String name = original.nextElement();
+                if (!HttpHeaders.CONTENT_TYPE.equalsIgnoreCase(name)) {
+                    names.add(name);
+                }
+            }
+            return Collections.enumeration(names);
         }
     }
 }
