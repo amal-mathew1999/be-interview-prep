@@ -56,9 +56,11 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.util.unit.DataSize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -79,6 +81,8 @@ class CommonProblemDetailErrorControllerIntegrationTest {
     private static final String SECRET = "SecretInternalDetail-42";
     private static final String CRLF = "\r\n";
     private static final String PARTIAL_BODY = "{\"items\":[\"partial-stream-content\"";
+    private static final String STREAM_FIRST = "first-streamed-part;";
+    private static final String STREAM_SECOND = "second-streamed-part";
     private static final ParameterizedTypeReference<Map<String, Object>> JSON_MAP =
             new ParameterizedTypeReference<>() {};
     private static final JsonMapper JSON = new JsonMapper();
@@ -148,6 +152,57 @@ class CommonProblemDetailErrorControllerIntegrationTest {
 
         assertProblem(response, HttpStatus.NOT_FOUND, "/api/does-not-exist");
         assertThat(response.getBody()).containsEntry("detail", "No resource found for DELETE /api/does-not-exist.");
+    }
+
+    @Test
+    void names404DetailAfterOriginalMethodForPlainSendError() {
+        ResponseEntity<Map<String, Object>> response =
+                client.delete().uri("/test-errors/send-error-404").retrieve().toEntity(JSON_MAP);
+
+        assertProblem(response, HttpStatus.NOT_FOUND, "/test-errors/send-error-404");
+        assertThat(response.getBody())
+                .containsEntry("detail", "No resource found for DELETE /test-errors/send-error-404.");
+    }
+
+    @Test
+    void logsOriginalMethodForUncaughtExceptionOnPost(CapturedOutput output) {
+        ResponseEntity<Map<String, Object>> response =
+                client.post().uri("/test-errors/boom").retrieve().toEntity(JSON_MAP);
+
+        assertProblem(response, HttpStatus.INTERNAL_SERVER_ERROR, "/test-errors/boom");
+        assertThat(output.getAll())
+                .contains("Request POST /test-errors/boom failed with status 500")
+                .doesNotContain("Request GET /test-errors/boom failed");
+    }
+
+    @Test
+    void logsOriginalMethodForServerSendErrorOnPut(CapturedOutput output) {
+        ResponseEntity<Map<String, Object>> response =
+                client.put().uri("/test-errors/send-error-503").retrieve().toEntity(JSON_MAP);
+
+        assertProblem(response, HttpStatus.SERVICE_UNAVAILABLE, "/test-errors/send-error-503");
+        assertThat(output.getAll())
+                .contains("Request PUT /test-errors/send-error-503 failed with status 503")
+                .doesNotContain("Request GET /test-errors/send-error-503 failed");
+    }
+
+    @Test
+    void leavesSuccessfulResponsesUnchangedOverRawHttp() throws IOException {
+        String raw = rawGet("/test-errors/ok");
+
+        assertThat(raw).startsWith("HTTP/1.1 200").endsWith(CRLF + CRLF + "ok");
+        assertThat(raw.toLowerCase(Locale.ROOT)).contains("content-length: 2").doesNotContain("problem+json");
+    }
+
+    @Test
+    void keepsStreamedSuccessfulResponsesChunked() throws IOException {
+        String raw = rawGet("/test-errors/stream");
+
+        assertThat(raw).startsWith("HTTP/1.1 200").contains(STREAM_FIRST).contains(STREAM_SECOND);
+        assertThat(raw.toLowerCase(Locale.ROOT))
+                .contains("transfer-encoding: chunked")
+                .doesNotContain("content-length:");
+        assertThat(raw).endsWith("0" + CRLF + CRLF);
     }
 
     @Test
@@ -549,9 +604,32 @@ class CommonProblemDetailErrorControllerIntegrationTest {
             return String.valueOf(file.getSize());
         }
 
+        @GetMapping("/test-errors/stream")
+        void stream(HttpServletResponse response) throws IOException {
+            response.setContentType(MediaType.TEXT_PLAIN_VALUE);
+            response.getOutputStream().write(STREAM_FIRST.getBytes(StandardCharsets.UTF_8));
+            response.flushBuffer();
+            response.getOutputStream().write(STREAM_SECOND.getBytes(StandardCharsets.UTF_8));
+        }
+
         @GetMapping("/test-errors/boom")
         String boom() {
             throw new IllegalStateException(SECRET);
+        }
+
+        @PostMapping("/test-errors/boom")
+        String boomPost() {
+            throw new IllegalStateException(SECRET);
+        }
+
+        @DeleteMapping("/test-errors/send-error-404")
+        void sendError404(HttpServletResponse response) throws IOException {
+            response.sendError(HttpStatus.NOT_FOUND.value(), SECRET);
+        }
+
+        @PutMapping("/test-errors/send-error-503")
+        void sendError503Put(HttpServletResponse response) throws IOException {
+            response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(), SECRET);
         }
 
         @GetMapping("/test-errors/send-error-503")

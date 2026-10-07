@@ -115,10 +115,15 @@ public class CommonProblemDetailErrorController implements ErrorController {
     }
 
     /**
-     * The error dispatch is always made with the container's error-page method (GET), so the client's method is taken
-     * from the original exception when it carries one.
+     * The error dispatch is made with the container's error-page method (GET), so the client's method is taken from
+     * {@link RequestDispatcher#ERROR_METHOD} (Servlet 6.1), which the container sets for every error dispatch, then from
+     * the original exception when it carries one.
      */
     private static String resolveMethod(HttpServletRequest request, Throwable error) {
+        Object original = request.getAttribute(RequestDispatcher.ERROR_METHOD);
+        if (original instanceof String value && !value.isBlank()) {
+            return value;
+        }
         if (error instanceof HttpRequestMethodNotSupportedException ex) {
             return ex.getMethod();
         }
