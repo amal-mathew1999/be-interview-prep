@@ -38,6 +38,6 @@ Features are built concurrently in separate worktrees, so they must never share 
 - No `Thread.sleep`, no test ordering dependencies, no shared mutable static state.
 
 ## Git
-- Branch: `task/<TASK-ID>-<kebab-slug>` (e.g. `task/T01-task-entity`).
+- Branch: `feature/q<N>-<kebab-slug>` (e.g. `feature/q1-library`); `<N>` is the task number. Never rename a branch with an open PR — GitHub closes the PR (it does not follow head-branch renames).
 - Conventional Commits: `feat(tasks): add Task entity and repository`, `fix(tasks): ...`, `test: ...`, `chore: ...`. Subject ≤ 72 chars, imperative.
 - Small commits; each commit must pass `./mvnw -q -B verify` (pre-commit hook checks formatting, pre-push runs verify).

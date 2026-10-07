@@ -1,7 +1,7 @@
 ---
 id: T01
 title: Library API — books and lending
-branch: task/T01-library-api
+branch: feature/q1-library
 depends_on: []
 owns:
   - src/main/java/com/example/mockretest/library/**

@@ -1,7 +1,7 @@
 ---
 id: T<NN>
 title: <short imperative title>
-branch: task/T<NN>-<slug>
+branch: feature/q<N>-<slug>
 depends_on: []
 owns:
   - src/main/java/com/example/mockretest/<feature>/...

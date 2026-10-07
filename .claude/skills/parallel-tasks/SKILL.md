@@ -19,7 +19,7 @@ The orchestrator (main session) runs these phases. Subagents do the work; the or
 - Commit the specs to `main` (`chore(harness): add task specs`) and push.
 
 ## Phase 2 — Worktrees
-For each task: `scripts/harness/new-worktree.sh T<NN> <slug>` → creates `.worktrees/T<NN>` on branch `task/T<NN>-<slug>` from `main`.
+For each task: `scripts/harness/new-worktree.sh T<NN> q<N>-<slug>` → creates `.worktrees/T<NN>` on branch `feature/q<N>-<slug>` from `main`.
 
 ## Phase 3 — Implement in parallel (agent: `java-implementer`, one per task)
 - Launch all implementers **in a single message** so they run concurrently.

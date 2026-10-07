@@ -1,7 +1,7 @@
 ---
 id: T04
 title: Per-API-key rate limiting
-branch: task/T04-rate-limiting
+branch: feature/q4-rate-limit
 depends_on: []
 owns:
   - src/main/java/com/example/mockretest/ratelimit/**

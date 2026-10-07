@@ -1,7 +1,7 @@
 ---
 id: T05
 title: Clinic appointment booking with holds
-branch: task/T05-appointment-booking
+branch: feature/q5-booking
 depends_on: []
 owns:
   - src/main/java/com/example/mockretest/booking/**

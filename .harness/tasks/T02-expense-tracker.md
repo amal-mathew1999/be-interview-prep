@@ -1,7 +1,7 @@
 ---
 id: T02
 title: Expense tracker with monthly summary
-branch: task/T02-expense-tracker
+branch: feature/q2-expenses
 depends_on: []
 owns:
   - src/main/java/com/example/mockretest/expense/**

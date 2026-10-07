@@ -1,7 +1,7 @@
 ---
 id: T06
 title: Global problem+json fallback for errors outside feature handlers
-branch: task/T06-problem-error-fallback
+branch: feature/q6-error-fallback
 depends_on: []
 owns:
   - src/main/java/com/example/mockretest/common/error/**
