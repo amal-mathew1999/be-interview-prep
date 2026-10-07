@@ -1,0 +1,86 @@
+package com.example.mockretest.library;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
+import java.util.Optional;
+
+@Entity
+@Table(
+        name = "library_book",
+        uniqueConstraints = @UniqueConstraint(name = LibraryBook.ISBN_UNIQUE_CONSTRAINT, columnNames = "isbn"))
+public class LibraryBook {
+
+    public static final int TITLE_MAX_LENGTH = 255;
+    public static final int AUTHOR_MAX_LENGTH = 255;
+    public static final int ISBN_MAX_LENGTH = 32;
+
+    /** Name of the ISBN unique constraint; used to recognise duplicate-ISBN violations. Lower case. */
+    public static final String ISBN_UNIQUE_CONSTRAINT = "uk_library_book_isbn";
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = TITLE_MAX_LENGTH)
+    private String title;
+
+    @Column(nullable = false, length = AUTHOR_MAX_LENGTH)
+    private String author;
+
+    @Column(nullable = false, length = ISBN_MAX_LENGTH)
+    private String isbn;
+
+    @Column(name = "published_year")
+    private Integer publishedYear;
+
+    /** Changed only through the conditional updates in {@link LibraryBookRepository} so the database guards it. */
+    @Column(nullable = false)
+    private boolean available = true;
+
+    /** Optimistic lock: concurrent borrow/return/update/delete of the same book cannot both commit. */
+    @Version
+    private long version;
+
+    protected LibraryBook() {}
+
+    public LibraryBook(String title, String author, String isbn, Integer publishedYear) {
+        replaceDetails(title, author, isbn, publishedYear);
+    }
+
+    public final void replaceDetails(String title, String author, String isbn, Integer publishedYear) {
+        this.title = title;
+        this.author = author;
+        this.isbn = isbn;
+        this.publishedYear = publishedYear;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public String getAuthor() {
+        return author;
+    }
+
+    public String getIsbn() {
+        return isbn;
+    }
+
+    public Optional<Integer> getPublishedYear() {
+        return Optional.ofNullable(publishedYear);
+    }
+
+    public boolean isAvailable() {
+        return available;
+    }
+}
